@@ -2,6 +2,8 @@
 
 Web-based 3D platformer game compatible with desktop and mobile clients
 
+<img src="screenshot.jpg" alt="sample screenshot" width="200"/>
+
 ## Decription
 
 This is a web-based 3D platformer game with procedural terrain that initially
