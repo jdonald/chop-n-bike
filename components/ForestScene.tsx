@@ -10,11 +10,14 @@ type InputState = {
   right: boolean;
   jump: boolean;
   attack: boolean;
+  sink: boolean;
 };
 
 type TreeMeta = {
   mesh: THREE.Mesh;
   alive: boolean;
+  floating?: boolean;
+  group?: THREE.Group;
 };
 
 function buildTree(): THREE.Group {
@@ -54,6 +57,40 @@ function createMountain(angle: number, radius: number): THREE.Mesh {
   return mountain;
 }
 
+function createExitPortal(x: number, y: number, z: number): THREE.Group {
+  const portal = new THREE.Group();
+
+  // Outer ring
+  const ringGeo = new THREE.TorusGeometry(1.2, 0.15, 16, 32);
+  const ringMat = new THREE.MeshStandardMaterial({
+    color: 0x00ffaa,
+    emissive: 0x00ffaa,
+    emissiveIntensity: 0.8,
+    metalness: 0.8,
+    roughness: 0.2
+  });
+  const ring = new THREE.Mesh(ringGeo, ringMat);
+  ring.rotation.y = Math.PI / 2;
+  portal.add(ring);
+
+  // Inner glowing disc
+  const discGeo = new THREE.CircleGeometry(1.1, 32);
+  const discMat = new THREE.MeshStandardMaterial({
+    color: 0x00ddff,
+    emissive: 0x00aaff,
+    emissiveIntensity: 1.2,
+    transparent: true,
+    opacity: 0.6,
+    side: THREE.DoubleSide
+  });
+  const disc = new THREE.Mesh(discGeo, discMat);
+  disc.rotation.y = Math.PI / 2;
+  portal.add(disc);
+
+  portal.position.set(x, y, z);
+  return portal;
+}
+
 export default function ForestScene() {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -63,9 +100,11 @@ export default function ForestScene() {
     left: false,
     right: false,
     jump: false,
-    attack: false
+    attack: false,
+    sink: false
   });
   const [status, setStatus] = useState('Click the scene to capture the cursor and play.');
+  const [currentLevel, setCurrentLevel] = useState(1);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -74,8 +113,16 @@ export default function ForestScene() {
 
     let animationId = 0;
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x0b1420);
-    scene.fog = new THREE.FogExp2(0x0c1623, 0.03);
+
+    // Set background and fog based on level
+    if (currentLevel === 1) {
+      scene.background = new THREE.Color(0x0b1420);
+      scene.fog = new THREE.FogExp2(0x0c1623, 0.03);
+    } else {
+      // Ocean level - brighter, more daylight
+      scene.background = new THREE.Color(0x87ceeb);
+      scene.fog = new THREE.Fog(0x87ceeb, 10, 80);
+    }
 
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
     renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -100,9 +147,12 @@ export default function ForestScene() {
     window.addEventListener('resize', resize);
 
     // Lighting
-    const ambient = new THREE.AmbientLight(0xcfe8ff, 0.45);
+    const ambient = new THREE.AmbientLight(
+      currentLevel === 1 ? 0xcfe8ff : 0xffffff,
+      currentLevel === 1 ? 0.45 : 0.7
+    );
     scene.add(ambient);
-    const sun = new THREE.DirectionalLight(0xffffff, 1.15);
+    const sun = new THREE.DirectionalLight(0xffffff, currentLevel === 1 ? 1.15 : 1.8);
     sun.position.set(14, 18, 9);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
@@ -114,58 +164,127 @@ export default function ForestScene() {
     sun.shadow.camera.bottom = -25;
     scene.add(sun);
 
-    // Ground and paths
-    const groundGeo = new THREE.CircleGeometry(40, 80);
-    groundGeo.rotateX(-Math.PI / 2);
-    const ground = new THREE.Mesh(
-      groundGeo,
-      new THREE.MeshStandardMaterial({ color: 0x2d4c2f, roughness: 1 })
-    );
-    ground.receiveShadow = true;
-    scene.add(ground);
-
-    const pathGeo = new THREE.RingGeometry(6, 8, 64, 1);
-    pathGeo.rotateX(-Math.PI / 2);
-    const path = new THREE.Mesh(
-      pathGeo,
-      new THREE.MeshStandardMaterial({
-        color: 0x8a6f4d,
-        roughness: 0.85,
-        metalness: 0.1,
-        side: THREE.DoubleSide
-      })
-    );
-    path.receiveShadow = true;
-    scene.add(path);
-
-    // Mountain ring
-    const mountains = new THREE.Group();
-    for (let i = 0; i < 26; i += 1) {
-      const angle = (i / 26) * Math.PI * 2;
-      const radius = 32 + Math.random() * 3;
-      mountains.add(createMountain(angle, radius));
-    }
-    scene.add(mountains);
-
-    // Trees
+    // Level-specific geometry
     const trees: TreeMeta[] = [];
-    const forest = new THREE.Group();
-    for (let i = 0; i < 85; i += 1) {
-      const radius = THREE.MathUtils.randFloat(8, 28);
-      const angle = THREE.MathUtils.randFloat(0, Math.PI * 2);
-      const x = Math.cos(angle) * radius;
-      const z = Math.sin(angle) * radius;
-      if (Math.sqrt(x * x + z * z) < 6.5) {
-        continue;
+    let exitPortal: THREE.Group | null = null;
+    let waterLevel = 0;
+
+    if (currentLevel === 1) {
+      // FOREST LEVEL
+      // Ground and paths
+      const groundGeo = new THREE.CircleGeometry(40, 80);
+      groundGeo.rotateX(-Math.PI / 2);
+      const ground = new THREE.Mesh(
+        groundGeo,
+        new THREE.MeshStandardMaterial({ color: 0x2d4c2f, roughness: 1 })
+      );
+      ground.receiveShadow = true;
+      scene.add(ground);
+
+      const pathGeo = new THREE.RingGeometry(6, 8, 64, 1);
+      pathGeo.rotateX(-Math.PI / 2);
+      const path = new THREE.Mesh(
+        pathGeo,
+        new THREE.MeshStandardMaterial({
+          color: 0x8a6f4d,
+          roughness: 0.85,
+          metalness: 0.1,
+          side: THREE.DoubleSide
+        })
+      );
+      path.receiveShadow = true;
+      scene.add(path);
+
+      // Mountain ring
+      const mountains = new THREE.Group();
+      for (let i = 0; i < 26; i += 1) {
+        const angle = (i / 26) * Math.PI * 2;
+        const radius = 32 + Math.random() * 3;
+        mountains.add(createMountain(angle, radius));
       }
-      const tree = buildTree();
-      tree.position.set(x, 0, z);
-      tree.rotation.y = THREE.MathUtils.randFloat(0, Math.PI * 2);
-      forest.add(tree);
-      const firstMesh = tree.children[0] as THREE.Mesh;
-      trees.push({ mesh: firstMesh, alive: true });
+      scene.add(mountains);
+
+      // Trees
+      const forest = new THREE.Group();
+      for (let i = 0; i < 85; i += 1) {
+        const radius = THREE.MathUtils.randFloat(8, 28);
+        const angle = THREE.MathUtils.randFloat(0, Math.PI * 2);
+        const x = Math.cos(angle) * radius;
+        const z = Math.sin(angle) * radius;
+        if (Math.sqrt(x * x + z * z) < 6.5) {
+          continue;
+        }
+        const tree = buildTree();
+        tree.position.set(x, 0, z);
+        tree.rotation.y = THREE.MathUtils.randFloat(0, Math.PI * 2);
+        forest.add(tree);
+        const firstMesh = tree.children[0] as THREE.Mesh;
+        trees.push({ mesh: firstMesh, alive: true, group: tree });
+      }
+      scene.add(forest);
+
+      // Exit portal to ocean level
+      exitPortal = createExitPortal(25, 1.5, 0);
+      scene.add(exitPortal);
+
+    } else {
+      // OCEAN LEVEL
+      waterLevel = 0;
+
+      // Ocean floor
+      const floorGeo = new THREE.CircleGeometry(60, 80);
+      floorGeo.rotateX(-Math.PI / 2);
+      const floor = new THREE.Mesh(
+        floorGeo,
+        new THREE.MeshStandardMaterial({ color: 0x8b7355, roughness: 0.95 })
+      );
+      floor.position.y = -20;
+      floor.receiveShadow = true;
+      scene.add(floor);
+
+      // Water surface
+      const waterGeo = new THREE.CircleGeometry(60, 80);
+      waterGeo.rotateX(-Math.PI / 2);
+      const water = new THREE.Mesh(
+        waterGeo,
+        new THREE.MeshStandardMaterial({
+          color: 0x0077be,
+          transparent: true,
+          opacity: 0.6,
+          roughness: 0.1,
+          metalness: 0.8
+        })
+      );
+      water.position.y = waterLevel;
+      water.receiveShadow = true;
+      scene.add(water);
+
+      // Floating trees (cannot be chopped)
+      const floatingForest = new THREE.Group();
+      for (let i = 0; i < 25; i += 1) {
+        const radius = THREE.MathUtils.randFloat(10, 45);
+        const angle = THREE.MathUtils.randFloat(0, Math.PI * 2);
+        const x = Math.cos(angle) * radius;
+        const z = Math.sin(angle) * radius;
+        const tree = buildTree();
+        tree.position.set(x, waterLevel, z);
+        tree.rotation.y = THREE.MathUtils.randFloat(0, Math.PI * 2);
+        floatingForest.add(tree);
+        const firstMesh = tree.children[0] as THREE.Mesh;
+        trees.push({ mesh: firstMesh, alive: true, floating: true, group: tree });
+      }
+      scene.add(floatingForest);
+
+      // Underwater exit portal
+      const exitAngle = THREE.MathUtils.randFloat(0, Math.PI * 2);
+      const exitRadius = THREE.MathUtils.randFloat(30, 45);
+      exitPortal = createExitPortal(
+        Math.cos(exitAngle) * exitRadius,
+        -15,
+        Math.sin(exitAngle) * exitRadius
+      );
+      scene.add(exitPortal);
     }
-    scene.add(forest);
 
     // Player avatar
     const player = new THREE.Group();
@@ -203,7 +322,10 @@ export default function ForestScene() {
       velocity: new THREE.Vector3(),
       onGround: true,
       attackTimer: 0,
-      swingRegistered: false
+      swingRegistered: false,
+      inWater: false,
+      onTree: false,
+      climbingTree: null as THREE.Group | null
     };
 
     // Input handling
@@ -241,6 +363,9 @@ export default function ForestScene() {
           break;
         case 'k':
           input.attack = pressed;
+          break;
+        case 'shift':
+          input.sink = pressed;
           break;
         default:
           break;
@@ -286,7 +411,7 @@ export default function ForestScene() {
       const playerPos = player.position.clone();
 
       trees.forEach((entry) => {
-        if (!entry.alive) return;
+        if (!entry.alive || entry.floating) return; // Can't chop floating trees
         const offset = entry.mesh.getWorldPosition(new THREE.Vector3()).sub(playerPos);
         const distance = offset.length();
         if (distance > 3.1) return;
@@ -315,6 +440,35 @@ export default function ForestScene() {
         }
       }
 
+      // Check water state (ocean level only)
+      if (currentLevel === 2) {
+        playerState.inWater = player.position.y < waterLevel;
+      } else {
+        playerState.inWater = false;
+      }
+
+      // Check if player is on top of a tree or climbing
+      playerState.onTree = false;
+      playerState.climbingTree = null;
+      trees.forEach((treeEntry) => {
+        if (!treeEntry.group || !treeEntry.floating) return;
+        const treePos = treeEntry.group.position;
+        const distXZ = Math.sqrt(
+          (player.position.x - treePos.x) ** 2 + (player.position.z - treePos.z) ** 2
+        );
+
+        // On top of tree (within trunk radius, at tree height)
+        if (distXZ < 0.4 && Math.abs(player.position.y - treePos.y) < 0.3) {
+          playerState.onTree = true;
+          playerState.onGround = true;
+        }
+
+        // Climbing tree (close to trunk)
+        if (distXZ < 0.6 && player.position.y > treePos.y - 1 && player.position.y < treePos.y + 3) {
+          playerState.climbingTree = treeEntry.group;
+        }
+      });
+
       // Movement
       forwardDir.set(Math.sin(playerState.yaw), 0, Math.cos(playerState.yaw)).normalize();
       rightDir.set(forwardDir.z, 0, -forwardDir.x);
@@ -325,8 +479,11 @@ export default function ForestScene() {
       if (input.left) moveVector.sub(rightDir);
       if (input.right) moveVector.add(rightDir);
 
+      // Different speeds for water vs air
+      const moveSpeed = playerState.inWater ? 4 : 8;
+
       if (moveVector.lengthSq() > 0) {
-        moveVector.normalize().multiplyScalar(8);
+        moveVector.normalize().multiplyScalar(moveSpeed);
         playerState.velocity.x = THREE.MathUtils.damp(
           playerState.velocity.x,
           moveVector.x,
@@ -344,30 +501,69 @@ export default function ForestScene() {
         playerState.velocity.z = THREE.MathUtils.damp(playerState.velocity.z, 0, 6, delta);
       }
 
-      if (input.jump && playerState.onGround) {
-        playerState.velocity.y = 8.5;
-        playerState.onGround = false;
+      // Jumping / swimming / climbing
+      if (input.jump) {
+        if (playerState.onGround || playerState.onTree) {
+          // Jump from ground or tree
+          playerState.velocity.y = 8.5;
+          playerState.onGround = false;
+        } else if (playerState.inWater || playerState.climbingTree) {
+          // Swim up or climb tree
+          playerState.velocity.y = 5;
+        }
       }
 
-      if (!playerState.onGround) {
+      // Sinking in water
+      if (playerState.inWater) {
+        // Natural sinking
+        playerState.velocity.y -= 3 * delta;
+        // Faster sinking with shift key
+        if (input.sink) {
+          playerState.velocity.y -= 8 * delta;
+        }
+      } else if (!playerState.onGround && !playerState.onTree) {
+        // Gravity in air
         playerState.velocity.y -= 24 * delta;
       }
 
       player.position.addScaledVector(playerState.velocity, delta);
 
-      if (player.position.y <= 0) {
-        player.position.y = 0;
+      // Ground collision
+      const groundLevel = currentLevel === 1 ? 0 : -20;
+      if (player.position.y <= groundLevel) {
+        player.position.y = groundLevel;
         playerState.velocity.y = 0;
         playerState.onGround = true;
       }
 
+      // Water surface resistance
+      if (currentLevel === 2 && player.position.y > waterLevel && playerState.velocity.y < 0) {
+        const distToWater = player.position.y - waterLevel;
+        if (distToWater < 0.5) {
+          playerState.velocity.y *= 0.8; // Slow down near surface
+        }
+      }
+
       // Keep player within bounds
-      const radius = Math.min(Math.sqrt(player.position.x ** 2 + player.position.z ** 2), 31.8);
-      if (radius > 31.5) {
-        const scale = 31.5 / radius;
+      const boundaryRadius = currentLevel === 1 ? 31.5 : 55;
+      const radius = Math.sqrt(player.position.x ** 2 + player.position.z ** 2);
+      if (radius > boundaryRadius) {
+        const scale = boundaryRadius / radius;
         player.position.x *= scale;
         player.position.z *= scale;
         playerState.velocity.multiplyScalar(0.6);
+      }
+
+      // Portal collision detection
+      if (exitPortal) {
+        const portalPos = exitPortal.position;
+        const distToPortal = player.position.distanceTo(portalPos);
+        if (distToPortal < 2) {
+          // Player entered portal - transition to next level
+          if (currentLevel === 1) {
+            setCurrentLevel(2);
+          }
+        }
       }
 
       // Sword animation
@@ -405,13 +601,11 @@ export default function ForestScene() {
       window.removeEventListener('pointermove', onPointerMove);
       canvas.removeEventListener('click', onClick);
       renderer.dispose();
-      groundGeo.dispose();
-      pathGeo.dispose();
       body.geometry.dispose();
       head.geometry.dispose();
       sword.geometry.dispose();
     };
-  }, []);
+  }, [currentLevel]);
 
   const setDirection = (key: keyof InputState, pressed: boolean) => {
     inputRef.current[key] = pressed;
@@ -426,18 +620,26 @@ export default function ForestScene() {
             <h3>Desktop Controls</h3>
             <ul>
               <li>WASD / Arrow keys to move</li>
-              <li>Space to jump · K to swing sword</li>
+              <li>Space to jump/swim · K to swing sword</li>
+              {currentLevel === 2 && <li>Shift to sink faster in water</li>}
               <li>Click canvas to lock mouse; move to look</li>
             </ul>
             <div className="status-pill">{status}</div>
           </div>
           <div className="hud-card">
             <h3>Objective</h3>
-            <p>
-              Explore the procedural forest, find the gap in the mountain ring, and chop through
-              trees blocking your path.
-            </p>
-            <p className="legend">Stick-figure visuals now; swap in character models later.</p>
+            {currentLevel === 1 ? (
+              <p>
+                Explore the dark forest, find the glowing portal, and chop through
+                trees blocking your path.
+              </p>
+            ) : (
+              <p>
+                Explore the ocean level! Swim through the water, climb floating trees, and
+                find the hidden underwater exit portal.
+              </p>
+            )}
+            <p className="legend">Level {currentLevel} of 2 · Stick-figure visuals for now.</p>
           </div>
         </div>
         <div className="hud-row">
@@ -482,7 +684,7 @@ export default function ForestScene() {
                 onPointerDown={() => setDirection('jump', true)}
                 onPointerUp={() => setDirection('jump', false)}
               >
-                Jump
+                {currentLevel === 2 ? 'Jump/Swim' : 'Jump'}
               </button>
               <button
                 onPointerDown={() => setDirection('attack', true)}
@@ -490,6 +692,14 @@ export default function ForestScene() {
               >
                 Chop
               </button>
+              {currentLevel === 2 && (
+                <button
+                  onPointerDown={() => setDirection('sink', true)}
+                  onPointerUp={() => setDirection('sink', false)}
+                >
+                  Sink
+                </button>
+              )}
               <p className="legend">Touch controls stay active; keyboard and mouse still work.</p>
             </div>
           </div>
