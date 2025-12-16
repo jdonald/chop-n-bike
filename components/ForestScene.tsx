@@ -20,6 +20,14 @@ type TreeMeta = {
   group?: THREE.Group;
 };
 
+type EnemyMeta = {
+  group: THREE.Group;
+  alive: boolean;
+  type: 'jellyfish' | 'pufferfish';
+  baseY: number;
+  phase: number;
+};
+
 function buildTree(): THREE.Group {
   const tree = new THREE.Group();
   const trunk = new THREE.Mesh(
@@ -40,6 +48,98 @@ function buildTree(): THREE.Group {
   tree.add(leaves);
 
   return tree;
+}
+
+function buildJellyfish(): THREE.Group {
+  const jelly = new THREE.Group();
+
+  // Bell/dome
+  const bellGeo = new THREE.SphereGeometry(0.5, 16, 12, 0, Math.PI * 2, 0, Math.PI / 2);
+  const bellMat = new THREE.MeshStandardMaterial({
+    color: 0xff69b4,
+    transparent: true,
+    opacity: 0.7,
+    emissive: 0xff1493,
+    emissiveIntensity: 0.3,
+    side: THREE.DoubleSide
+  });
+  const bell = new THREE.Mesh(bellGeo, bellMat);
+  bell.rotation.x = Math.PI;
+  jelly.add(bell);
+
+  // Tentacles
+  const tentacleMat = new THREE.MeshStandardMaterial({
+    color: 0xff69b4,
+    transparent: true,
+    opacity: 0.5,
+    emissive: 0xff1493,
+    emissiveIntensity: 0.2
+  });
+  for (let i = 0; i < 6; i++) {
+    const tentacle = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.03, 0.01, 1.2, 6),
+      tentacleMat
+    );
+    const angle = (i / 6) * Math.PI * 2;
+    tentacle.position.set(Math.cos(angle) * 0.25, -0.6, Math.sin(angle) * 0.25);
+    jelly.add(tentacle);
+  }
+
+  return jelly;
+}
+
+function buildPufferfish(): THREE.Group {
+  const puffer = new THREE.Group();
+
+  // Body (spiky sphere)
+  const bodyGeo = new THREE.SphereGeometry(0.4, 12, 12);
+  const bodyMat = new THREE.MeshStandardMaterial({
+    color: 0xffd700,
+    roughness: 0.6
+  });
+  const body = new THREE.Mesh(bodyGeo, bodyMat);
+  body.castShadow = true;
+  puffer.add(body);
+
+  // Spikes
+  const spikeMat = new THREE.MeshStandardMaterial({ color: 0x8b4513 });
+  for (let i = 0; i < 20; i++) {
+    const spike = new THREE.Mesh(
+      new THREE.ConeGeometry(0.05, 0.2, 4),
+      spikeMat
+    );
+    const phi = Math.acos(2 * Math.random() - 1);
+    const theta = Math.random() * Math.PI * 2;
+    spike.position.set(
+      0.4 * Math.sin(phi) * Math.cos(theta),
+      0.4 * Math.sin(phi) * Math.sin(theta),
+      0.4 * Math.cos(phi)
+    );
+    spike.lookAt(spike.position.clone().multiplyScalar(2));
+    puffer.add(spike);
+  }
+
+  // Eyes
+  const eyeMat = new THREE.MeshStandardMaterial({ color: 0x000000 });
+  const eyeWhiteMat = new THREE.MeshStandardMaterial({ color: 0xffffff });
+  for (const side of [-1, 1]) {
+    const eyeWhite = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 8), eyeWhiteMat);
+    eyeWhite.position.set(side * 0.2, 0.15, 0.3);
+    puffer.add(eyeWhite);
+    const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 8), eyeMat);
+    pupil.position.set(side * 0.2, 0.15, 0.38);
+    puffer.add(pupil);
+  }
+
+  // Tail fin
+  const tailGeo = new THREE.ConeGeometry(0.15, 0.3, 4);
+  const tailMat = new THREE.MeshStandardMaterial({ color: 0xffa500 });
+  const tail = new THREE.Mesh(tailGeo, tailMat);
+  tail.rotation.x = Math.PI / 2;
+  tail.position.z = -0.5;
+  puffer.add(tail);
+
+  return puffer;
 }
 
 function createMountain(angle: number, radius: number): THREE.Mesh {
@@ -167,6 +267,7 @@ export default function ForestScene() {
 
     // Level-specific geometry
     const trees: TreeMeta[] = [];
+    const enemies: EnemyMeta[] = [];
     let exitPortal: THREE.Group | null = null;
     let waterLevel = 0;
 
@@ -285,6 +386,41 @@ export default function ForestScene() {
         Math.sin(exitAngle) * exitRadius
       );
       scene.add(exitPortal);
+
+      // Spawn jellyfish
+      for (let i = 0; i < 12; i++) {
+        const jelly = buildJellyfish();
+        const radius = THREE.MathUtils.randFloat(8, 40);
+        const angle = THREE.MathUtils.randFloat(0, Math.PI * 2);
+        const y = THREE.MathUtils.randFloat(-15, -2);
+        jelly.position.set(Math.cos(angle) * radius, y, Math.sin(angle) * radius);
+        scene.add(jelly);
+        enemies.push({
+          group: jelly,
+          alive: true,
+          type: 'jellyfish',
+          baseY: y,
+          phase: Math.random() * Math.PI * 2
+        });
+      }
+
+      // Spawn pufferfish
+      for (let i = 0; i < 8; i++) {
+        const puffer = buildPufferfish();
+        const radius = THREE.MathUtils.randFloat(8, 40);
+        const angle = THREE.MathUtils.randFloat(0, Math.PI * 2);
+        const y = THREE.MathUtils.randFloat(-12, -1);
+        puffer.position.set(Math.cos(angle) * radius, y, Math.sin(angle) * radius);
+        puffer.rotation.y = THREE.MathUtils.randFloat(0, Math.PI * 2);
+        scene.add(puffer);
+        enemies.push({
+          group: puffer,
+          alive: true,
+          type: 'pufferfish',
+          baseY: y,
+          phase: Math.random() * Math.PI * 2
+        });
+      }
     }
 
     // Player avatar
@@ -471,6 +607,20 @@ export default function ForestScene() {
         });
         setScore((prev) => prev + 200);
       });
+
+      // Kill enemies
+      enemies.forEach((enemy) => {
+        if (!enemy.alive) return;
+        const offset = enemy.group.position.clone().sub(playerPos);
+        const distance = offset.length();
+        if (distance > 3.5) return;
+        offset.normalize();
+        if (offset.dot(forward) < 0.3) return;
+        enemy.alive = false;
+        enemy.group.visible = false;
+        const points = enemy.type === 'jellyfish' ? 150 : 250;
+        setScore((prev) => prev + points);
+      });
     };
 
     const animate = () => {
@@ -614,6 +764,22 @@ export default function ForestScene() {
           }
         }
       }
+
+      // Animate enemies (bobbing motion)
+      const time = clock.elapsedTime;
+      enemies.forEach((enemy) => {
+        if (!enemy.alive) return;
+        // Bobbing up and down
+        enemy.group.position.y = enemy.baseY + Math.sin(time * 2 + enemy.phase) * 0.5;
+        // Gentle rotation for jellyfish
+        if (enemy.type === 'jellyfish') {
+          enemy.group.rotation.y += delta * 0.5;
+        }
+        // Pufferfish swim in small circles
+        if (enemy.type === 'pufferfish') {
+          enemy.group.rotation.y += delta * 0.3;
+        }
+      });
 
       // Sword animation - swing from right side across front
       const swingPhase = THREE.MathUtils.clamp(
