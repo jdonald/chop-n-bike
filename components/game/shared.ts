@@ -20,9 +20,15 @@ export type TreeMeta = {
 export type EnemyMeta = {
   group: THREE.Group;
   alive: boolean;
-  type: 'jellyfish' | 'pufferfish';
+  type: 'jellyfish' | 'pufferfish' | 'alien' | 'skull';
   baseY: number;
   phase: number;
+};
+
+export type PlanetMeta = {
+  mesh: THREE.Mesh;
+  position: THREE.Vector3;
+  radius: number;
 };
 
 export type LevelData = {
@@ -40,6 +46,7 @@ export type LevelData = {
   mazeOffsetZ?: number;
   mazeSize?: number;
   mazeScale?: number;
+  planets?: PlanetMeta[];
 };
 
 export function buildTree(): THREE.Group {
@@ -322,4 +329,131 @@ export function createPlayer(): { player: THREE.Group; body: THREE.Mesh; head: T
   player.add(sword);
 
   return { player, body, head, sword };
+}
+
+export function buildPlanet(radius: number, color: number): THREE.Mesh {
+  const geometry = new THREE.IcosahedronGeometry(radius, 2);
+  const material = new THREE.MeshStandardMaterial({
+    color,
+    roughness: 0.8,
+    flatShading: true
+  });
+  const planet = new THREE.Mesh(geometry, material);
+  planet.castShadow = true;
+  planet.receiveShadow = true;
+  return planet;
+}
+
+export function buildPinkTree(): THREE.Group {
+  const tree = new THREE.Group();
+  const trunk = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.15, 0.22, 1.4, 8),
+    new THREE.MeshStandardMaterial({ color: 0xff69b4, roughness: 0.9 })
+  );
+  trunk.position.y = 0.7;
+  trunk.castShadow = true;
+  trunk.receiveShadow = true;
+  tree.add(trunk);
+
+  const leaves = new THREE.Mesh(
+    new THREE.ConeGeometry(0.9, 2.2, 10),
+    new THREE.MeshStandardMaterial({ color: 0xff1493, roughness: 0.8, flatShading: true })
+  );
+  leaves.position.y = 2.1;
+  leaves.castShadow = true;
+  tree.add(leaves);
+
+  return tree;
+}
+
+export function buildAlien(): THREE.Group {
+  const alien = new THREE.Group();
+
+  // Green body
+  const bodyGeo = new THREE.SphereGeometry(0.4, 12, 12);
+  const bodyMat = new THREE.MeshStandardMaterial({
+    color: 0x00ff00,
+    roughness: 0.6
+  });
+  const body = new THREE.Mesh(bodyGeo, bodyMat);
+  body.scale.set(1, 1.2, 1);
+  body.castShadow = true;
+  alien.add(body);
+
+  // Large black eyes
+  const eyeMat = new THREE.MeshStandardMaterial({ color: 0x000000 });
+  for (const side of [-1, 1]) {
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.15, 12, 12), eyeMat);
+    eye.position.set(side * 0.15, 0.15, 0.35);
+    eye.scale.set(1.3, 1.5, 1);
+    alien.add(eye);
+  }
+
+  // Antennae
+  const antennaMat = new THREE.MeshStandardMaterial({ color: 0x00cc00 });
+  for (const side of [-1, 1]) {
+    const antenna = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.02, 0.02, 0.4, 6),
+      antennaMat
+    );
+    antenna.position.set(side * 0.1, 0.55, 0);
+    antenna.rotation.z = side * 0.3;
+    alien.add(antenna);
+
+    const ball = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 8), antennaMat);
+    ball.position.set(side * 0.15, 0.75, 0);
+    alien.add(ball);
+  }
+
+  return alien;
+}
+
+export function buildSkull(): THREE.Group {
+  const skull = new THREE.Group();
+
+  // Pink skull head
+  const headGeo = new THREE.SphereGeometry(0.35, 12, 12);
+  const headMat = new THREE.MeshStandardMaterial({
+    color: 0xff69b4,
+    roughness: 0.7
+  });
+  const head = new THREE.Mesh(headGeo, headMat);
+  head.scale.set(1, 1.1, 0.9);
+  head.castShadow = true;
+  skull.add(head);
+
+  // Dark eye sockets
+  const eyeMat = new THREE.MeshStandardMaterial({ color: 0x220022 });
+  for (const side of [-1, 1]) {
+    const eyeSocket = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 8), eyeMat);
+    eyeSocket.position.set(side * 0.12, 0.08, 0.25);
+    eyeSocket.scale.set(0.8, 1.2, 0.6);
+    skull.add(eyeSocket);
+  }
+
+  // Nose hole
+  const nose = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.1, 6), eyeMat);
+  nose.position.set(0, -0.05, 0.28);
+  nose.rotation.x = Math.PI;
+  skull.add(nose);
+
+  // Jaw
+  const jawGeo = new THREE.BoxGeometry(0.25, 0.15, 0.2);
+  const jaw = new THREE.Mesh(jawGeo, headMat);
+  jaw.position.set(0, -0.25, 0.15);
+  jaw.castShadow = true;
+  skull.add(jaw);
+
+  return skull;
+}
+
+export function buildCrater(radius: number): THREE.Mesh {
+  const craterGeo = new THREE.CylinderGeometry(radius * 0.3, radius, 0.3, 16);
+  const craterMat = new THREE.MeshStandardMaterial({
+    color: 0x888888,
+    roughness: 0.95
+  });
+  const crater = new THREE.Mesh(craterGeo, craterMat);
+  crater.receiveShadow = true;
+  return crater;
 }

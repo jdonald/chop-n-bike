@@ -6,6 +6,9 @@ import { InputState, LevelData, createPlayer } from './game/shared';
 import { setupForestLevel } from './game/ForestLevel';
 import { setupOceanLevel } from './game/OceanLevel';
 import { setupTrainLevel } from './game/TrainLevel';
+import { setupSpaceLevel } from './game/SpaceLevel';
+import { setupMoonLevel } from './game/MoonLevel';
+import { setupPinkIslandLevel } from './game/PinkIslandLevel';
 
 export default function GameScene() {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -77,8 +80,14 @@ export default function GameScene() {
       levelData = setupForestLevel(scene);
     } else if (currentLevel === 2) {
       levelData = setupOceanLevel(scene);
-    } else {
+    } else if (currentLevel === 3) {
       levelData = setupTrainLevel(scene);
+    } else if (currentLevel === 4) {
+      levelData = setupSpaceLevel(scene);
+    } else if (currentLevel === 5) {
+      levelData = setupMoonLevel(scene);
+    } else {
+      levelData = setupPinkIslandLevel(scene);
     }
 
     // Player
@@ -248,7 +257,10 @@ export default function GameScene() {
         if (offset.dot(forward) < 0.3) return;
         enemy.alive = false;
         enemy.group.visible = false;
-        const points = enemy.type === 'jellyfish' ? 150 : 250;
+        let points = 150;
+        if (enemy.type === 'pufferfish') points = 250;
+        if (enemy.type === 'alien') points = 300;
+        if (enemy.type === 'skull') points = 350;
         setScore((prev) => prev + points);
       });
     };
@@ -347,6 +359,61 @@ export default function GameScene() {
         playerState.velocity.y -= 24 * delta;
       }
 
+      // Space gravity (Level 4)
+      if (currentLevel === 4 && levelData.planets) {
+        // Find nearest planet
+        let nearestPlanet = null;
+        let minDist = Infinity;
+        for (const planet of levelData.planets) {
+          const dist = player.position.distanceTo(planet.position);
+          if (dist < minDist) {
+            minDist = dist;
+            nearestPlanet = planet;
+          }
+        }
+
+        if (nearestPlanet) {
+          // Apply gravity toward nearest planet
+          const toPlanet = new THREE.Vector3().subVectors(nearestPlanet.position, player.position);
+          const distance = toPlanet.length();
+
+          // Only apply gravity if within range
+          if (distance > nearestPlanet.radius + 0.5 && distance < nearestPlanet.radius + 30) {
+            toPlanet.normalize();
+            const gravityStrength = 18;
+            playerState.velocity.addScaledVector(toPlanet, gravityStrength * delta);
+          }
+
+          // Check collision with planet surface
+          if (distance <= nearestPlanet.radius + 0.6) {
+            // Snap to surface
+            const surfacePos = new THREE.Vector3()
+              .subVectors(player.position, nearestPlanet.position)
+              .normalize()
+              .multiplyScalar(nearestPlanet.radius + 0.6)
+              .add(nearestPlanet.position);
+            player.position.copy(surfacePos);
+
+            // Remove velocity component toward planet center
+            const toPlanetNorm = new THREE.Vector3()
+              .subVectors(player.position, nearestPlanet.position)
+              .normalize();
+            const velocityTowardPlanet = playerState.velocity.dot(toPlanetNorm);
+            if (velocityTowardPlanet < 0) {
+              playerState.velocity.addScaledVector(toPlanetNorm, -velocityTowardPlanet);
+            }
+
+            playerState.onGround = true;
+          }
+
+          // Allow "jumping" away from planet or "sinking" toward it
+          if (input.sink && distance <= nearestPlanet.radius + 5) {
+            // Push toward planet (like sinking)
+            playerState.velocity.addScaledVector(toPlanet, 8 * delta);
+          }
+        }
+      }
+
       player.position.addScaledVector(playerState.velocity, delta);
 
       // Ground collision
@@ -380,7 +447,15 @@ export default function GameScene() {
         if (distToPortal < 2) {
           if (currentLevel === 1) {
             setCurrentLevel(2);
+          } else if (currentLevel === 2) {
+            setCurrentLevel(3);
           } else if (currentLevel === 3) {
+            setCurrentLevel(4);
+          } else if (currentLevel === 4) {
+            setCurrentLevel(5);
+          } else if (currentLevel === 5) {
+            setCurrentLevel(6);
+          } else if (currentLevel === 6) {
             setScore((prev) => prev + 1000);
             setCurrentLevel(1);
           }
@@ -447,6 +522,12 @@ export default function GameScene() {
         if (enemy.type === 'pufferfish') {
           enemy.group.rotation.y += delta * 0.3;
         }
+        if (enemy.type === 'alien') {
+          enemy.group.rotation.y += delta * 0.4;
+        }
+        if (enemy.type === 'skull') {
+          enemy.group.rotation.y = Math.sin(time * 1.5 + enemy.phase) * 0.3;
+        }
       });
 
       // Sword animation
@@ -512,6 +593,9 @@ export default function GameScene() {
           <button onClick={() => warpToLevel(1)} className={currentLevel === 1 ? 'active' : ''}>1</button>
           <button onClick={() => warpToLevel(2)} className={currentLevel === 2 ? 'active' : ''}>2</button>
           <button onClick={() => warpToLevel(3)} className={currentLevel === 3 ? 'active' : ''}>3</button>
+          <button onClick={() => warpToLevel(4)} className={currentLevel === 4 ? 'active' : ''}>4</button>
+          <button onClick={() => warpToLevel(5)} className={currentLevel === 5 ? 'active' : ''}>5</button>
+          <button onClick={() => warpToLevel(6)} className={currentLevel === 6 ? 'active' : ''}>6</button>
         </div>
         <div className="score-display">Score: {score}</div>
         <div className="hud-row">
@@ -521,6 +605,7 @@ export default function GameScene() {
               <li>WASD / Arrow keys to move</li>
               <li>Space to jump/swim · K to swing sword</li>
               {currentLevel === 2 && <li>Shift to sink faster in water</li>}
+              {currentLevel === 4 && <li>Shift to push down toward planet</li>}
               <li>Click canvas to lock mouse; move to look</li>
             </ul>
             <div className="status-pill">{status}</div>
@@ -545,7 +630,25 @@ export default function GameScene() {
                 navigate the yellow maze, and reach the portal at the center!
               </p>
             )}
-            <p className="legend">Level {currentLevel} of 3 · Stick-figure visuals for now.</p>
+            {currentLevel === 4 && (
+              <p>
+                Jump between spherical planets in space! Use gravity to your advantage as you
+                leap from planet to planet. Find the exit portal on the fifth golden planet!
+              </p>
+            )}
+            {currentLevel === 5 && (
+              <p>
+                Explore the moon surface! Navigate craters, defeat green aliens with your sword,
+                and locate the exit portal hidden somewhere on the lunar landscape.
+              </p>
+            )}
+            {currentLevel === 6 && (
+              <p>
+                Welcome to the pink island! Surrounded by ocean, this island features pink trees
+                and pink skulls. Defeat the skulls with your sword and find the exit portal!
+              </p>
+            )}
+            <p className="legend">Level {currentLevel} of 6 · Stick-figure visuals for now.</p>
           </div>
         </div>
         <div className="hud-row">
