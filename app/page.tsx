@@ -1,4 +1,4 @@
-import ForestScene from '@/components/ForestScene';
+import GameScene from '@/components/GameScene';
 
 export default function HomePage() {
   return (
@@ -47,7 +47,7 @@ export default function HomePage() {
         </article>
       </section>
 
-      <ForestScene />
+      <GameScene />
     </main>
   );
 }
