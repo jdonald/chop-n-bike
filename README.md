@@ -24,3 +24,13 @@ This is a web game and can load in a browser. On deskop the controls would be WA
 ## Frameworks
 
 This is based on Three.js with whatever additional overarching framework Three.js would be paired with, such as NextJS.
+
+## Getting Started
+
+```bash
+npm install      # Install dependencies
+npm run dev      # Start development server with hot reload
+npm run build    # Production build
+npm run start    # Start production server
+npm run lint     # Run ESLint
+```

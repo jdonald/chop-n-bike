@@ -105,6 +105,7 @@ export default function ForestScene() {
   });
   const [status, setStatus] = useState('Click the scene to capture the cursor and play.');
   const [currentLevel, setCurrentLevel] = useState(1);
+  const [score, setScore] = useState(0);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -308,8 +309,8 @@ export default function ForestScene() {
       new THREE.BoxGeometry(0.09, 0.12, 1.1),
       new THREE.MeshStandardMaterial({ color: 0xd6ad60, roughness: 0.4, metalness: 0.3 })
     );
-    sword.position.set(0.45, 0.3, 0.1);
-    sword.rotation.y = Math.PI / 4;
+    sword.position.set(0.5, 0.4, -0.3);
+    sword.rotation.y = -Math.PI / 3;
     sword.castShadow = true;
     player.add(sword);
 
@@ -386,8 +387,51 @@ export default function ForestScene() {
     };
 
     const onClick = () => {
-      if (document.pointerLockElement !== canvas) {
+      if (document.pointerLockElement !== canvas && canvas.requestPointerLock) {
         canvas.requestPointerLock();
+      }
+    };
+
+    // Touch handling for mobile camera rotation
+    let lastTouchX = 0;
+    let lastTouchY = 0;
+    let touchId: number | null = null;
+
+    const onTouchStart = (event: TouchEvent) => {
+      // Only track touches directly on the canvas (not on HUD buttons)
+      if (event.target !== canvas) return;
+      const touch = event.changedTouches[0];
+      touchId = touch.identifier;
+      lastTouchX = touch.clientX;
+      lastTouchY = touch.clientY;
+    };
+
+    const onTouchMove = (event: TouchEvent) => {
+      if (touchId === null) return;
+      for (let i = 0; i < event.changedTouches.length; i++) {
+        const touch = event.changedTouches[i];
+        if (touch.identifier === touchId) {
+          const deltaX = touch.clientX - lastTouchX;
+          const deltaY = touch.clientY - lastTouchY;
+          playerState.yaw -= deltaX * 0.005;
+          playerState.pitch = THREE.MathUtils.clamp(
+            playerState.pitch - deltaY * 0.005,
+            -Math.PI / 3,
+            Math.PI / 6
+          );
+          lastTouchX = touch.clientX;
+          lastTouchY = touch.clientY;
+          break;
+        }
+      }
+    };
+
+    const onTouchEnd = (event: TouchEvent) => {
+      for (let i = 0; i < event.changedTouches.length; i++) {
+        if (event.changedTouches[i].identifier === touchId) {
+          touchId = null;
+          break;
+        }
       }
     };
 
@@ -396,6 +440,9 @@ export default function ForestScene() {
     window.addEventListener('keyup', onKeyUp);
     window.addEventListener('pointermove', onPointerMove);
     canvas.addEventListener('click', onClick);
+    canvas.addEventListener('touchstart', onTouchStart);
+    canvas.addEventListener('touchmove', onTouchMove);
+    canvas.addEventListener('touchend', onTouchEnd);
 
     // Scene helpers
     const cameraOffset = new THREE.Vector3(0, 1.7, 4.8);
@@ -405,8 +452,9 @@ export default function ForestScene() {
     const clock = new THREE.Clock();
 
     const applyChop = () => {
+      // Forward is negative of the calculated direction (matches inverted movement)
       const forward = forwardDir
-        .set(Math.sin(playerState.yaw), 0, Math.cos(playerState.yaw))
+        .set(-Math.sin(playerState.yaw), 0, -Math.cos(playerState.yaw))
         .normalize();
       const playerPos = player.position.clone();
 
@@ -416,11 +464,12 @@ export default function ForestScene() {
         const distance = offset.length();
         if (distance > 3.1) return;
         offset.normalize();
-        if (offset.dot(forward) < 0.35) return;
+        if (offset.dot(forward) < 0.4) return;
         entry.alive = false;
         entry.mesh.parent?.traverse((child) => {
           child.visible = false;
         });
+        setScore((prev) => prev + 200);
       });
     };
 
@@ -474,8 +523,8 @@ export default function ForestScene() {
       rightDir.set(forwardDir.z, 0, -forwardDir.x);
 
       const moveVector = new THREE.Vector3();
-      if (input.forward) moveVector.add(forwardDir);
-      if (input.back) moveVector.sub(forwardDir);
+      if (input.forward) moveVector.sub(forwardDir);
+      if (input.back) moveVector.add(forwardDir);
       if (input.left) moveVector.sub(rightDir);
       if (input.right) moveVector.add(rightDir);
 
@@ -566,16 +615,20 @@ export default function ForestScene() {
         }
       }
 
-      // Sword animation
+      // Sword animation - swing from right side across front
       const swingPhase = THREE.MathUtils.clamp(
         1 - playerState.attackTimer / 0.35,
         0,
         1
       );
-      sword.rotation.x = -Math.sin(swingPhase * Math.PI) * 0.9;
-      sword.rotation.y = Math.PI / 4 + swingPhase * 0.6;
+      // Swing from right (-PI/3) across to left (PI/2)
+      sword.rotation.y = -Math.PI / 3 + swingPhase * (Math.PI * 0.85);
+      sword.rotation.x = -Math.sin(swingPhase * Math.PI) * 0.5;
+      // Move sword position during swing (from right to center-left)
+      sword.position.x = 0.5 - swingPhase * 0.7;
+      sword.position.z = -0.3 - swingPhase * 0.4;
 
-      player.rotation.y = playerState.yaw;
+      player.rotation.y = playerState.yaw + Math.PI;
 
       // Camera follow
       const rotatedOffset = cameraOffset.clone();
@@ -600,6 +653,9 @@ export default function ForestScene() {
       window.removeEventListener('keyup', onKeyUp);
       window.removeEventListener('pointermove', onPointerMove);
       canvas.removeEventListener('click', onClick);
+      canvas.removeEventListener('touchstart', onTouchStart);
+      canvas.removeEventListener('touchmove', onTouchMove);
+      canvas.removeEventListener('touchend', onTouchEnd);
       renderer.dispose();
       body.geometry.dispose();
       head.geometry.dispose();
@@ -611,12 +667,22 @@ export default function ForestScene() {
     inputRef.current[key] = pressed;
   };
 
+  const warpToLevel = (level: number) => {
+    setScore(0);
+    setCurrentLevel(level);
+  };
+
   return (
     <div className="canvas-shell" ref={containerRef}>
       <canvas ref={canvasRef} className="scene-canvas" />
       <div className="hud">
+        <div className="level-buttons">
+          <button onClick={() => warpToLevel(1)} className={currentLevel === 1 ? 'active' : ''}>1</button>
+          <button onClick={() => warpToLevel(2)} className={currentLevel === 2 ? 'active' : ''}>2</button>
+        </div>
+        <div className="score-display">Score: {score}</div>
         <div className="hud-row">
-          <div className="hud-card">
+          <div className="hud-card desktop-only">
             <h3>Desktop Controls</h3>
             <ul>
               <li>WASD / Arrow keys to move</li>
@@ -643,9 +709,7 @@ export default function ForestScene() {
           </div>
         </div>
         <div className="hud-row">
-          <div className="hud-card mobile-controls">
-            <div>
-            <div className="legend">Touch movement</div>
+          <div className="mobile-controls">
             <div className="pad">
               <span className="pad-placeholder" />
               <button
@@ -677,30 +741,27 @@ export default function ForestScene() {
               </button>
               <span className="pad-placeholder" />
             </div>
-          </div>
             <div className="action">
-              <div className="legend">Actions</div>
               <button
                 onPointerDown={() => setDirection('jump', true)}
                 onPointerUp={() => setDirection('jump', false)}
               >
-                {currentLevel === 2 ? 'Jump/Swim' : 'Jump'}
+                J
               </button>
               <button
                 onPointerDown={() => setDirection('attack', true)}
                 onPointerUp={() => setDirection('attack', false)}
               >
-                Chop
+                C
               </button>
               {currentLevel === 2 && (
                 <button
                   onPointerDown={() => setDirection('sink', true)}
                   onPointerUp={() => setDirection('sink', false)}
                 >
-                  Sink
+                  S
                 </button>
               )}
-              <p className="legend">Touch controls stay active; keyboard and mouse still work.</p>
             </div>
           </div>
         </div>
