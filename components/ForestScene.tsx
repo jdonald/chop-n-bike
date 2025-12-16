@@ -142,6 +142,110 @@ function buildPufferfish(): THREE.Group {
   return puffer;
 }
 
+function buildTrainCar(): THREE.Group {
+  const train = new THREE.Group();
+
+  // Main body
+  const bodyGeo = new THREE.BoxGeometry(3, 1.5, 2);
+  const bodyMat = new THREE.MeshStandardMaterial({ color: 0x8b0000, roughness: 0.7 });
+  const body = new THREE.Mesh(bodyGeo, bodyMat);
+  body.position.y = 1.25;
+  body.castShadow = true;
+  body.receiveShadow = true;
+  train.add(body);
+
+  // Roof
+  const roofGeo = new THREE.BoxGeometry(3.2, 0.3, 2.2);
+  const roofMat = new THREE.MeshStandardMaterial({ color: 0x5c0000, roughness: 0.8 });
+  const roof = new THREE.Mesh(roofGeo, roofMat);
+  roof.position.y = 2.15;
+  roof.castShadow = true;
+  train.add(roof);
+
+  // Wheels
+  const wheelGeo = new THREE.CylinderGeometry(0.4, 0.4, 0.2, 16);
+  const wheelMat = new THREE.MeshStandardMaterial({ color: 0x333333, metalness: 0.8 });
+  for (const xOff of [-1, 1]) {
+    for (const zOff of [-1, 1]) {
+      const wheel = new THREE.Mesh(wheelGeo, wheelMat);
+      wheel.rotation.x = Math.PI / 2;
+      wheel.position.set(xOff * 1, 0.4, zOff * 1.1);
+      wheel.castShadow = true;
+      train.add(wheel);
+    }
+  }
+
+  // Platform on top for player to stand
+  const platformGeo = new THREE.BoxGeometry(3.4, 0.1, 2.4);
+  const platformMat = new THREE.MeshStandardMaterial({ color: 0x654321, roughness: 0.9 });
+  const platform = new THREE.Mesh(platformGeo, platformMat);
+  platform.position.y = 2.35;
+  platform.receiveShadow = true;
+  train.add(platform);
+
+  return train;
+}
+
+function generateMaze(size: number): boolean[][] {
+  // Create a maze using recursive backtracking
+  // true = wall, false = path
+  const maze: boolean[][] = [];
+  for (let i = 0; i < size; i++) {
+    maze[i] = [];
+    for (let j = 0; j < size; j++) {
+      maze[i][j] = true; // Start with all walls
+    }
+  }
+
+  const stack: [number, number][] = [];
+  const startX = 1;
+  const startZ = 1;
+  maze[startX][startZ] = false;
+  stack.push([startX, startZ]);
+
+  const directions = [
+    [0, 2], [0, -2], [2, 0], [-2, 0]
+  ];
+
+  while (stack.length > 0) {
+    const [cx, cz] = stack[stack.length - 1];
+    const neighbors: [number, number, number, number][] = [];
+
+    for (const [dx, dz] of directions) {
+      const nx = cx + dx;
+      const nz = cz + dz;
+      if (nx > 0 && nx < size - 1 && nz > 0 && nz < size - 1 && maze[nx][nz]) {
+        neighbors.push([nx, nz, cx + dx / 2, cz + dz / 2]);
+      }
+    }
+
+    if (neighbors.length > 0) {
+      const [nx, nz, wx, wz] = neighbors[Math.floor(Math.random() * neighbors.length)];
+      maze[nx][nz] = false;
+      maze[wx][wz] = false;
+      stack.push([nx, nz]);
+    } else {
+      stack.pop();
+    }
+  }
+
+  // Ensure center is open (goal area)
+  const center = Math.floor(size / 2);
+  for (let i = center - 1; i <= center + 1; i++) {
+    for (let j = center - 1; j <= center + 1; j++) {
+      if (i >= 0 && i < size && j >= 0 && j < size) {
+        maze[i][j] = false;
+      }
+    }
+  }
+
+  // Ensure entrance is open
+  maze[1][0] = false;
+  maze[1][1] = false;
+
+  return maze;
+}
+
 function createMountain(angle: number, radius: number): THREE.Mesh {
   const height = 6 + Math.random() * 5;
   const base = 2.2 + Math.random() * 1;
@@ -219,11 +323,12 @@ export default function ForestScene() {
     if (currentLevel === 1) {
       scene.background = new THREE.Color(0x0b1420);
       scene.fog = new THREE.FogExp2(0x0c1623, 0.03);
-    } else {
+    } else if (currentLevel === 2) {
       // Ocean level - brighter, more daylight
       scene.background = new THREE.Color(0x87ceeb);
       scene.fog = new THREE.Fog(0x87ceeb, 10, 80);
     }
+    // Level 3 background/fog is set in its own section
 
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
     renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -329,7 +434,7 @@ export default function ForestScene() {
       exitPortal = createExitPortal(25, 1.5, 0);
       scene.add(exitPortal);
 
-    } else {
+    } else if (currentLevel === 2) {
       // OCEAN LEVEL
       waterLevel = 0;
 
@@ -421,6 +526,95 @@ export default function ForestScene() {
           phase: Math.random() * Math.PI * 2
         });
       }
+    } else if (currentLevel === 3) {
+      // TRAIN & MAZE LEVEL
+      scene.background = new THREE.Color(0x4a3728);
+      scene.fog = new THREE.Fog(0x4a3728, 20, 100);
+
+      // Reddish dirt ground
+      const groundGeo = new THREE.CircleGeometry(80, 80);
+      groundGeo.rotateX(-Math.PI / 2);
+      const ground = new THREE.Mesh(
+        groundGeo,
+        new THREE.MeshStandardMaterial({ color: 0x8b4513, roughness: 1 })
+      );
+      ground.receiveShadow = true;
+      scene.add(ground);
+
+      // Train track (circular)
+      const trackRadius = 25;
+      const trackGeo = new THREE.TorusGeometry(trackRadius, 0.3, 8, 64);
+      trackGeo.rotateX(Math.PI / 2);
+      const track = new THREE.Mesh(
+        trackGeo,
+        new THREE.MeshStandardMaterial({ color: 0x444444, metalness: 0.8, roughness: 0.3 })
+      );
+      track.position.y = 0.1;
+      track.receiveShadow = true;
+      scene.add(track);
+
+      // Train car
+      const train = buildTrainCar();
+      train.position.set(trackRadius, 0, 0);
+      scene.add(train);
+
+      // Store train reference for animation
+      (scene as THREE.Scene & { trainRef?: THREE.Group }).trainRef = train;
+      (scene as THREE.Scene & { trackRadius?: number }).trackRadius = trackRadius;
+      (scene as THREE.Scene & { trainAngle?: number }).trainAngle = 0;
+
+      // Maze positioned at opposite end of track
+      const mazeSize = 15;
+      const mazeScale = 2;
+      const mazeOffsetX = -trackRadius - mazeSize * mazeScale / 2 - 5;
+      const mazeOffsetZ = 0;
+      const maze = generateMaze(mazeSize);
+      const mazeGroup = new THREE.Group();
+      const wallMat = new THREE.MeshStandardMaterial({ color: 0xffd700, roughness: 0.6 });
+      const wallHeight = 3;
+
+      for (let i = 0; i < mazeSize; i++) {
+        for (let j = 0; j < mazeSize; j++) {
+          if (maze[i][j]) {
+            const wallGeo = new THREE.BoxGeometry(mazeScale, wallHeight, mazeScale);
+            const wall = new THREE.Mesh(wallGeo, wallMat);
+            wall.position.set(
+              i * mazeScale - (mazeSize * mazeScale) / 2,
+              wallHeight / 2,
+              j * mazeScale - (mazeSize * mazeScale) / 2
+            );
+            wall.castShadow = true;
+            wall.receiveShadow = true;
+            mazeGroup.add(wall);
+          }
+        }
+      }
+
+      mazeGroup.position.set(mazeOffsetX, 0, mazeOffsetZ);
+      scene.add(mazeGroup);
+
+      // Store maze walls for collision
+      (scene as THREE.Scene & { mazeGroup?: THREE.Group }).mazeGroup = mazeGroup;
+      (scene as THREE.Scene & { mazeOffsetX?: number }).mazeOffsetX = mazeOffsetX;
+      (scene as THREE.Scene & { mazeOffsetZ?: number }).mazeOffsetZ = mazeOffsetZ;
+      (scene as THREE.Scene & { mazeSize?: number }).mazeSize = mazeSize;
+      (scene as THREE.Scene & { mazeScale?: number }).mazeScale = mazeScale;
+      (scene as THREE.Scene & { mazeData?: boolean[][] }).mazeData = maze;
+
+      // Goal portal at center of maze
+      const mazeCenterX = mazeOffsetX;
+      const mazeCenterZ = mazeOffsetZ;
+      exitPortal = createExitPortal(mazeCenterX, 1.5, mazeCenterZ);
+      scene.add(exitPortal);
+
+      // Jump-off platform near the train stop
+      const platformGeo = new THREE.BoxGeometry(4, 0.5, 4);
+      const platformMat = new THREE.MeshStandardMaterial({ color: 0x666666, roughness: 0.8 });
+      const jumpOffPlatform = new THREE.Mesh(platformGeo, platformMat);
+      jumpOffPlatform.position.set(-trackRadius, 0.25, 0);
+      jumpOffPlatform.receiveShadow = true;
+      jumpOffPlatform.castShadow = true;
+      scene.add(jumpOffPlatform);
     }
 
     // Player avatar
@@ -761,6 +955,78 @@ export default function ForestScene() {
           // Player entered portal - transition to next level
           if (currentLevel === 1) {
             setCurrentLevel(2);
+          } else if (currentLevel === 3) {
+            // Level 3 complete - award bonus and return to level 1
+            setScore((prev) => prev + 1000);
+            setCurrentLevel(1);
+          }
+        }
+      }
+
+      // Level 3: Train animation and riding
+      if (currentLevel === 3) {
+        const sceneExt = scene as THREE.Scene & {
+          trainRef?: THREE.Group;
+          trackRadius?: number;
+          trainAngle?: number;
+          mazeData?: boolean[][];
+          mazeOffsetX?: number;
+          mazeOffsetZ?: number;
+          mazeSize?: number;
+          mazeScale?: number;
+        };
+
+        if (sceneExt.trainRef && sceneExt.trackRadius !== undefined) {
+          // Move train in circle
+          sceneExt.trainAngle = (sceneExt.trainAngle || 0) + delta * 0.3;
+          const trainX = Math.cos(sceneExt.trainAngle) * sceneExt.trackRadius;
+          const trainZ = Math.sin(sceneExt.trainAngle) * sceneExt.trackRadius;
+          sceneExt.trainRef.position.set(trainX, 0, trainZ);
+          sceneExt.trainRef.rotation.y = -sceneExt.trainAngle + Math.PI / 2;
+
+          // Check if player is on train
+          const trainTop = 2.4;
+          const dx = player.position.x - trainX;
+          const dz = player.position.z - trainZ;
+          const distToTrain = Math.sqrt(dx * dx + dz * dz);
+          const onTrain = distToTrain < 2 &&
+                         player.position.y >= trainTop - 0.5 &&
+                         player.position.y <= trainTop + 1;
+
+          if (onTrain) {
+            // Player rides with train
+            playerState.onGround = true;
+            if (player.position.y < trainTop) {
+              player.position.y = trainTop;
+              playerState.velocity.y = 0;
+            }
+            // Move player with train
+            const prevAngle = sceneExt.trainAngle - delta * 0.3;
+            const prevX = Math.cos(prevAngle) * sceneExt.trackRadius;
+            const prevZ = Math.sin(prevAngle) * sceneExt.trackRadius;
+            player.position.x += trainX - prevX;
+            player.position.z += trainZ - prevZ;
+          }
+        }
+
+        // Maze wall collision
+        if (sceneExt.mazeData && sceneExt.mazeOffsetX !== undefined) {
+          const mazeLocalX = player.position.x - sceneExt.mazeOffsetX + (sceneExt.mazeSize! * sceneExt.mazeScale!) / 2;
+          const mazeLocalZ = player.position.z - sceneExt.mazeOffsetZ! + (sceneExt.mazeSize! * sceneExt.mazeScale!) / 2;
+          const gridX = Math.floor(mazeLocalX / sceneExt.mazeScale!);
+          const gridZ = Math.floor(mazeLocalZ / sceneExt.mazeScale!);
+
+          // Check if inside maze bounds and hitting a wall
+          if (gridX >= 0 && gridX < sceneExt.mazeSize! &&
+              gridZ >= 0 && gridZ < sceneExt.mazeSize! &&
+              player.position.y < 3) {
+            if (sceneExt.mazeData[gridX][gridZ]) {
+              // Push player out of wall
+              playerState.velocity.x *= -0.5;
+              playerState.velocity.z *= -0.5;
+              player.position.x -= playerState.velocity.x * delta * 2;
+              player.position.z -= playerState.velocity.z * delta * 2;
+            }
           }
         }
       }
@@ -845,6 +1111,7 @@ export default function ForestScene() {
         <div className="level-buttons">
           <button onClick={() => warpToLevel(1)} className={currentLevel === 1 ? 'active' : ''}>1</button>
           <button onClick={() => warpToLevel(2)} className={currentLevel === 2 ? 'active' : ''}>2</button>
+          <button onClick={() => warpToLevel(3)} className={currentLevel === 3 ? 'active' : ''}>3</button>
         </div>
         <div className="score-display">Score: {score}</div>
         <div className="hud-row">
@@ -860,18 +1127,25 @@ export default function ForestScene() {
           </div>
           <div className="hud-card">
             <h3>Objective</h3>
-            {currentLevel === 1 ? (
+            {currentLevel === 1 && (
               <p>
                 Explore the dark forest, find the glowing portal, and chop through
                 trees blocking your path.
               </p>
-            ) : (
+            )}
+            {currentLevel === 2 && (
               <p>
                 Explore the ocean level! Swim through the water, climb floating trees, and
                 find the hidden underwater exit portal.
               </p>
             )}
-            <p className="legend">Level {currentLevel} of 2 · Stick-figure visuals for now.</p>
+            {currentLevel === 3 && (
+              <p>
+                Jump on the train to ride around the track. Jump off at the platform,
+                navigate the yellow maze, and reach the portal at the center!
+              </p>
+            )}
+            <p className="legend">Level {currentLevel} of 3 · Stick-figure visuals for now.</p>
           </div>
         </div>
         <div className="hud-row">
