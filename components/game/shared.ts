@@ -47,6 +47,7 @@ export type LevelData = {
   mazeSize?: number;
   mazeScale?: number;
   planets?: PlanetMeta[];
+  bikeRef?: THREE.Group;
 };
 
 export function buildTree(): THREE.Group {
@@ -303,28 +304,70 @@ export function createExitPortal(x: number, y: number, z: number): THREE.Group {
 export function createPlayer(): { player: THREE.Group; body: THREE.Mesh; head: THREE.Mesh; sword: THREE.Mesh } {
   const player = new THREE.Group();
 
+  // Stickman body - thin cylinder
   const body = new THREE.Mesh(
-    new THREE.CapsuleGeometry(0.35, 1.1, 8, 12),
+    new THREE.CylinderGeometry(0.12, 0.12, 0.9, 8),
     new THREE.MeshStandardMaterial({ color: 0xd7e2f3, roughness: 0.6, metalness: 0.15 })
   );
+  body.position.y = 0.45;
   body.castShadow = true;
   body.receiveShadow = true;
   player.add(body);
 
+  // Head
   const head = new THREE.Mesh(
-    new THREE.SphereGeometry(0.28, 16, 16),
+    new THREE.SphereGeometry(0.25, 16, 16),
     new THREE.MeshStandardMaterial({ color: 0xf0f4ff, roughness: 0.3 })
   );
-  head.position.y = 1.05;
+  head.position.y = 1.15;
   head.castShadow = true;
   player.add(head);
 
+  // Arms
+  const armMaterial = new THREE.MeshStandardMaterial({ color: 0xd7e2f3, roughness: 0.6, metalness: 0.15 });
+  const leftArm = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.06, 0.06, 0.7, 6),
+    armMaterial
+  );
+  leftArm.position.set(-0.25, 0.6, 0);
+  leftArm.rotation.z = -0.3;
+  leftArm.castShadow = true;
+  player.add(leftArm);
+
+  const rightArm = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.06, 0.06, 0.7, 6),
+    armMaterial
+  );
+  rightArm.position.set(0.25, 0.6, 0);
+  rightArm.rotation.z = 0.3;
+  rightArm.castShadow = true;
+  player.add(rightArm);
+
+  // Legs
+  const legMaterial = new THREE.MeshStandardMaterial({ color: 0xd7e2f3, roughness: 0.6, metalness: 0.15 });
+  const leftLeg = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.08, 0.08, 0.8, 6),
+    legMaterial
+  );
+  leftLeg.position.set(-0.12, -0.4, 0);
+  leftLeg.castShadow = true;
+  player.add(leftLeg);
+
+  const rightLeg = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.08, 0.08, 0.8, 6),
+    legMaterial
+  );
+  rightLeg.position.set(0.12, -0.4, 0);
+  rightLeg.castShadow = true;
+  player.add(rightLeg);
+
+  // Sword - positioned at side, will swing forward
   const sword = new THREE.Mesh(
     new THREE.BoxGeometry(0.09, 0.12, 1.1),
     new THREE.MeshStandardMaterial({ color: 0xd6ad60, roughness: 0.4, metalness: 0.3 })
   );
-  sword.position.set(0.5, 0.4, -0.3);
-  sword.rotation.y = -Math.PI / 3;
+  sword.position.set(0.45, 0.3, 0.1);
+  sword.rotation.y = Math.PI / 4;
   sword.castShadow = true;
   player.add(sword);
 
@@ -456,4 +499,61 @@ export function buildCrater(radius: number): THREE.Mesh {
   const crater = new THREE.Mesh(craterGeo, craterMat);
   crater.receiveShadow = true;
   return crater;
+}
+
+export function buildBike(): THREE.Group {
+  const bike = new THREE.Group();
+
+  // Frame
+  const frameMat = new THREE.MeshStandardMaterial({ color: 0xff0000, roughness: 0.5, metalness: 0.6 });
+  const frame1 = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 1.2, 8), frameMat);
+  frame1.rotation.z = Math.PI / 4;
+  frame1.position.set(0, 0.4, 0);
+  bike.add(frame1);
+
+  const frame2 = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.8, 8), frameMat);
+  frame2.rotation.z = -Math.PI / 3;
+  frame2.position.set(-0.2, 0.3, 0);
+  bike.add(frame2);
+
+  // Wheels
+  const wheelMat = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.8 });
+  const frontWheel = new THREE.Mesh(
+    new THREE.TorusGeometry(0.3, 0.06, 8, 16),
+    wheelMat
+  );
+  frontWheel.rotation.y = Math.PI / 2;
+  frontWheel.position.set(0.5, 0.3, 0);
+  frontWheel.castShadow = true;
+  bike.add(frontWheel);
+
+  const backWheel = new THREE.Mesh(
+    new THREE.TorusGeometry(0.3, 0.06, 8, 16),
+    wheelMat
+  );
+  backWheel.rotation.y = Math.PI / 2;
+  backWheel.position.set(-0.5, 0.3, 0);
+  backWheel.castShadow = true;
+  bike.add(backWheel);
+
+  // Seat
+  const seatMat = new THREE.MeshStandardMaterial({ color: 0x8b4513 });
+  const seat = new THREE.Mesh(
+    new THREE.BoxGeometry(0.3, 0.1, 0.2),
+    seatMat
+  );
+  seat.position.set(-0.1, 0.7, 0);
+  bike.add(seat);
+
+  // Handlebars
+  const handleMat = new THREE.MeshStandardMaterial({ color: 0x333333, metalness: 0.7 });
+  const handleBar = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.03, 0.03, 0.5, 6),
+    handleMat
+  );
+  handleBar.rotation.z = Math.PI / 2;
+  handleBar.position.set(0.4, 0.7, 0);
+  bike.add(handleBar);
+
+  return bike;
 }

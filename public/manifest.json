@@ -1,0 +1,24 @@
+{
+  "name": "Chop-n-Bike Adventure",
+  "short_name": "Chop-n-Bike",
+  "description": "6-level 3D platformer adventure game",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0b1420",
+  "theme_color": "#0b1420",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

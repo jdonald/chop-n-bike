@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { TreeMeta, LevelData, buildTree, createMountain, createExitPortal } from './shared';
+import { TreeMeta, LevelData, buildTree, createMountain, createExitPortal, buildBike } from './shared';
 
 export function setupForestLevel(scene: THREE.Scene): LevelData {
   // Set background and fog
@@ -18,7 +18,7 @@ export function setupForestLevel(scene: THREE.Scene): LevelData {
   ground.receiveShadow = true;
   scene.add(ground);
 
-  // Path
+  // Path - raised slightly to prevent z-fighting with ground
   const pathGeo = new THREE.RingGeometry(6, 8, 64, 1);
   pathGeo.rotateX(-Math.PI / 2);
   const path = new THREE.Mesh(
@@ -30,6 +30,7 @@ export function setupForestLevel(scene: THREE.Scene): LevelData {
       side: THREE.DoubleSide
     })
   );
+  path.position.y = 0.02; // Raise slightly to prevent z-fighting
   path.receiveShadow = true;
   scene.add(path);
 
@@ -65,12 +66,19 @@ export function setupForestLevel(scene: THREE.Scene): LevelData {
   const exitPortal = createExitPortal(25, 1.5, 0);
   scene.add(exitPortal);
 
+  // Bike reward - placed near the path
+  const bike = buildBike();
+  bike.position.set(10, 0.3, 10);
+  bike.rotation.y = Math.PI / 4;
+  scene.add(bike);
+
   return {
     trees,
     enemies: [],
     exitPortal,
     waterLevel: 0,
     groundLevel: 0,
-    boundaryRadius: 31.5
+    boundaryRadius: 31.5,
+    bikeRef: bike
   };
 }

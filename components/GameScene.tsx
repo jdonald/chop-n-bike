@@ -31,6 +31,17 @@ export default function GameScene() {
     const canvas = canvasRef.current;
     if (!container || !canvas) return;
 
+    // Reset all input states when level changes to prevent stuck controls
+    inputRef.current = {
+      forward: false,
+      back: false,
+      left: false,
+      right: false,
+      jump: false,
+      attack: false,
+      sink: false
+    };
+
     let animationId = 0;
     const scene = new THREE.Scene();
 
@@ -104,7 +115,8 @@ export default function GameScene() {
       swingRegistered: false,
       inWater: false,
       onTree: false,
-      climbingTree: null as THREE.Group | null
+      climbingTree: null as THREE.Group | null,
+      hasBike: false
     };
 
     // Input handling
@@ -283,7 +295,7 @@ export default function GameScene() {
 
       // Check water state (ocean level only)
       if (currentLevel === 2) {
-        playerState.inWater = player.position.y < levelData.waterLevel;
+        playerState.inWater = player.position.y <= levelData.waterLevel;
       } else {
         playerState.inWater = false;
       }
@@ -308,6 +320,15 @@ export default function GameScene() {
         }
       });
 
+      // Bike pickup collision detection
+      if (levelData.bikeRef && !playerState.hasBike) {
+        const distToBike = player.position.distanceTo(levelData.bikeRef.position);
+        if (distToBike < 1.5) {
+          playerState.hasBike = true;
+          levelData.bikeRef.visible = false; // Hide bike when picked up
+        }
+      }
+
       // Movement
       forwardDir.set(Math.sin(playerState.yaw), 0, Math.cos(playerState.yaw)).normalize();
       rightDir.set(forwardDir.z, 0, -forwardDir.x);
@@ -318,7 +339,7 @@ export default function GameScene() {
       if (input.left) moveVector.sub(rightDir);
       if (input.right) moveVector.add(rightDir);
 
-      const moveSpeed = playerState.inWater ? 4 : 8;
+      const moveSpeed = playerState.inWater ? 4 : (playerState.hasBike ? 14 : 8);
 
       if (moveVector.lengthSq() > 0) {
         moveVector.normalize().multiplyScalar(moveSpeed);
@@ -470,20 +491,23 @@ export default function GameScene() {
         levelData.trainRef.position.set(trainX, 0, trainZ);
         levelData.trainRef.rotation.y = -levelData.trainAngle + Math.PI / 2;
 
-        const trainTop = 2.4;
+        const trainTop = 2.35; // Platform height on train
         const dx = player.position.x - trainX;
         const dz = player.position.z - trainZ;
         const distToTrain = Math.sqrt(dx * dx + dz * dz);
-        const onTrain = distToTrain < 2 &&
-                       player.position.y >= trainTop - 0.5 &&
-                       player.position.y <= trainTop + 1;
+        // More lenient collision - wider horizontal range and catch players falling onto it
+        const onTrain = distToTrain < 2.2 &&
+                       player.position.y >= trainTop - 0.8 &&
+                       player.position.y <= trainTop + 2;
 
         if (onTrain) {
           playerState.onGround = true;
+          // Snap player to train platform
           if (player.position.y < trainTop) {
             player.position.y = trainTop;
             playerState.velocity.y = 0;
           }
+          // Move player with train
           const prevAngle = levelData.trainAngle - delta * 0.3;
           const prevX = Math.cos(prevAngle) * levelData.trackRadius;
           const prevZ = Math.sin(prevAngle) * levelData.trackRadius;
@@ -530,16 +554,19 @@ export default function GameScene() {
         }
       });
 
-      // Sword animation
+      // Sword animation - swing forward (away from camera)
       const swingPhase = THREE.MathUtils.clamp(
         1 - playerState.attackTimer / 0.35,
         0,
         1
       );
-      sword.rotation.y = -Math.PI / 3 + swingPhase * (Math.PI * 0.85);
-      sword.rotation.x = -Math.sin(swingPhase * Math.PI) * 0.5;
-      sword.position.x = 0.5 - swingPhase * 0.7;
-      sword.position.z = -0.3 - swingPhase * 0.4;
+      // Keep sword at side
+      sword.position.x = 0.45;
+      // Swing forward in Z direction
+      sword.position.z = 0.1 - swingPhase * 1.2;
+      // Rotate forward during swing
+      sword.rotation.x = -swingPhase * Math.PI * 0.6;
+      sword.rotation.y = Math.PI / 4;
 
       player.rotation.y = playerState.yaw + Math.PI;
 
@@ -658,6 +685,8 @@ export default function GameScene() {
               <button
                 onPointerDown={() => setDirection('forward', true)}
                 onPointerUp={() => setDirection('forward', false)}
+                onPointerCancel={() => setDirection('forward', false)}
+                onPointerLeave={() => setDirection('forward', false)}
               >
                 ▲
               </button>
@@ -665,6 +694,8 @@ export default function GameScene() {
               <button
                 onPointerDown={() => setDirection('left', true)}
                 onPointerUp={() => setDirection('left', false)}
+                onPointerCancel={() => setDirection('left', false)}
+                onPointerLeave={() => setDirection('left', false)}
               >
                 ◀
               </button>
@@ -672,6 +703,8 @@ export default function GameScene() {
               <button
                 onPointerDown={() => setDirection('right', true)}
                 onPointerUp={() => setDirection('right', false)}
+                onPointerCancel={() => setDirection('right', false)}
+                onPointerLeave={() => setDirection('right', false)}
               >
                 ▶
               </button>
@@ -679,6 +712,8 @@ export default function GameScene() {
               <button
                 onPointerDown={() => setDirection('back', true)}
                 onPointerUp={() => setDirection('back', false)}
+                onPointerCancel={() => setDirection('back', false)}
+                onPointerLeave={() => setDirection('back', false)}
               >
                 ▼
               </button>
@@ -688,12 +723,16 @@ export default function GameScene() {
               <button
                 onPointerDown={() => setDirection('jump', true)}
                 onPointerUp={() => setDirection('jump', false)}
+                onPointerCancel={() => setDirection('jump', false)}
+                onPointerLeave={() => setDirection('jump', false)}
               >
                 J
               </button>
               <button
                 onPointerDown={() => setDirection('attack', true)}
                 onPointerUp={() => setDirection('attack', false)}
+                onPointerCancel={() => setDirection('attack', false)}
+                onPointerLeave={() => setDirection('attack', false)}
               >
                 C
               </button>
@@ -701,6 +740,8 @@ export default function GameScene() {
                 <button
                   onPointerDown={() => setDirection('sink', true)}
                   onPointerUp={() => setDirection('sink', false)}
+                  onPointerCancel={() => setDirection('sink', false)}
+                  onPointerLeave={() => setDirection('sink', false)}
                 >
                   S
                 </button>
