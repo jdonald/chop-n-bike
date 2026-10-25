@@ -39,29 +39,39 @@ export function setupTrainLevel(scene: THREE.Scene): LevelData {
   const mazeOffsetX = -trackRadius - mazeSize * mazeScale / 2 - 5;
   const mazeOffsetZ = 0;
   const maze = generateMaze(mazeSize);
-  const mazeGroup = new THREE.Group();
   const wallMat = new THREE.MeshStandardMaterial({ color: 0xffd700, roughness: 0.6 });
   const wallHeight = 3;
+  const colliders: THREE.Box3[] = [];
 
+  // Merge wall cells into rectangles: fewer meshes, and fewer seams for the player to snag on
+  const used = maze.map((row) => row.map(() => false));
+  const half = (mazeSize * mazeScale) / 2;
   for (let i = 0; i < mazeSize; i++) {
     for (let j = 0; j < mazeSize; j++) {
-      if (maze[i][j]) {
-        const wallGeo = new THREE.BoxGeometry(mazeScale, wallHeight, mazeScale);
-        const wall = new THREE.Mesh(wallGeo, wallMat);
-        wall.position.set(
-          i * mazeScale - (mazeSize * mazeScale) / 2,
-          wallHeight / 2,
-          j * mazeScale - (mazeSize * mazeScale) / 2
-        );
-        wall.castShadow = true;
-        wall.receiveShadow = true;
-        mazeGroup.add(wall);
-      }
+      if (!maze[i][j] || used[i][j]) continue;
+      let j1 = j;
+      while (j1 + 1 < mazeSize && maze[i][j1 + 1] && !used[i][j1 + 1]) j1++;
+      let i1 = i;
+      const rowFits = (r: number) => {
+        for (let k = j; k <= j1; k++) if (!maze[r][k] || used[r][k]) return false;
+        return true;
+      };
+      while (i1 + 1 < mazeSize && rowFits(i1 + 1)) i1++;
+      for (let r = i; r <= i1; r++) for (let k = j; k <= j1; k++) used[r][k] = true;
+
+      const box = new THREE.Box3(
+        new THREE.Vector3(mazeOffsetX + i * mazeScale - half - mazeScale / 2, 0, mazeOffsetZ + j * mazeScale - half - mazeScale / 2),
+        new THREE.Vector3(mazeOffsetX + i1 * mazeScale - half + mazeScale / 2, wallHeight, mazeOffsetZ + j1 * mazeScale - half + mazeScale / 2)
+      );
+      const size = box.getSize(new THREE.Vector3());
+      const wall = new THREE.Mesh(new THREE.BoxGeometry(size.x, size.y, size.z), wallMat);
+      box.getCenter(wall.position);
+      wall.castShadow = true;
+      wall.receiveShadow = true;
+      scene.add(wall);
+      colliders.push(box);
     }
   }
-
-  mazeGroup.position.set(mazeOffsetX, 0, mazeOffsetZ);
-  scene.add(mazeGroup);
 
   // Goal portal at center of maze
   const mazeCenterX = mazeOffsetX;
@@ -71,7 +81,6 @@ export function setupTrainLevel(scene: THREE.Scene): LevelData {
 
   // Stations: the train stops beside each one. Steps make the platform reachable with a normal
   // jump, and the platform is high enough to jump from onto the train roof.
-  const colliders: THREE.Box3[] = [];
   const addBlock = (min: [number, number, number], max: [number, number, number], color: number) => {
     const box = new THREE.Box3(new THREE.Vector3(...min), new THREE.Vector3(...max));
     const size = box.getSize(new THREE.Vector3());
@@ -91,7 +100,7 @@ export function setupTrainLevel(scene: THREE.Scene): LevelData {
   addBlock([-2, 0, 18.8], [2, 0.65, 20.6], 0x666666);
   // Near the maze, outside the track at angle PI
   addBlock([-29.2, 0, -2], [-26.6, 1.3, 2], 0x777777);
-  addBlock([-30.6, 0, -2], [-29.2, 0.65, 2], 0x666666);
+  addBlock([-30.2, 0, -2], [-29.2, 0.65, 2], 0x666666);
 
   return {
     trees: [],
@@ -103,11 +112,8 @@ export function setupTrainLevel(scene: THREE.Scene): LevelData {
     trainRef: train,
     trackRadius,
     trainStops: [Math.PI / 2, Math.PI],
-    colliders,
-    mazeData: maze,
-    mazeOffsetX,
-    mazeOffsetZ,
-    mazeSize,
-    mazeScale
+    // Camera rides above the 3-high maze walls so the corridors stay visible
+    cameraHeight: 4.5,
+    colliders
   };
 }

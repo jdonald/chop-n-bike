@@ -207,6 +207,22 @@ code {
   border: 1px solid rgba(126, 242, 157, 0.3);
 }
 
+.sound-toggle {
+  position: absolute;
+  top: calc(1rem + 48px);
+  right: 1rem;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  pointer-events: auto;
+  background: rgba(0, 0, 0, 0.5);
+  color: var(--accent);
+  border: 1px solid rgba(126, 242, 157, 0.3);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
 .hud-row {
   display: flex;
   gap: 0.75rem;
@@ -222,7 +238,7 @@ code {
   border-radius: 12px;
   padding: 0.8rem 1rem;
   color: var(--text);
-  max-width: 320px;
+  max-width: min(320px, calc(100% - 56px));
 }
 
 .hud-card h3 {

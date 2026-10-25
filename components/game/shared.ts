@@ -41,11 +41,7 @@ export type LevelData = {
   trainRef?: THREE.Group;
   trackRadius?: number;
   trainStops?: number[];
-  mazeData?: boolean[][];
-  mazeOffsetX?: number;
-  mazeOffsetZ?: number;
-  mazeSize?: number;
-  mazeScale?: number;
+  cameraHeight?: number;
   planets?: PlanetMeta[];
   bikeRef?: THREE.Group;
   colliders?: THREE.Box3[];

@@ -9,6 +9,7 @@ import { setupTrainLevel } from './game/TrainLevel';
 import { setupSpaceLevel } from './game/SpaceLevel';
 import { setupMoonLevel } from './game/MoonLevel';
 import { setupPinkIslandLevel } from './game/PinkIslandLevel';
+import { SoundName, sfx } from './game/sound';
 
 type SwordPose = { shoulder: number; wrist: number; sweep: number };
 
@@ -42,6 +43,17 @@ export default function GameScene() {
   const [status, setStatus] = useState('Click the scene to capture the cursor and play.');
   const [currentLevel, setCurrentLevel] = useState(1);
   const [score, setScore] = useState(0);
+  const [muted, setMuted] = useState(false);
+
+  useEffect(() => {
+    setMuted(sfx.isMuted());
+  }, []);
+
+  const toggleMute = () => {
+    const next = !muted;
+    sfx.setMuted(next);
+    setMuted(next);
+  };
 
   useEffect(() => {
     const container = containerRef.current;
@@ -268,8 +280,22 @@ export default function GameScene() {
     };
     window.addEventListener('blur', releaseAllInput);
 
+    const unlockAudio = () => sfx.unlock();
+    const unlockEvents = ['pointerdown', 'touchend', 'keydown'] as const;
+    unlockEvents.forEach((type) => window.addEventListener(type, unlockAudio));
+
+    const lastPlayed: Partial<Record<SoundName, number>> = {};
+    const play = (name: SoundName, minGap = 0) => {
+      const now = clock.elapsedTime;
+      if (now - (lastPlayed[name] ?? -Infinity) < minGap) return;
+      lastPlayed[name] = now;
+      sfx.play(name);
+    };
+
     // Scene helpers
-    const cameraOffset = new THREE.Vector3(0, 2.4, 5);
+    const cameraOffset = new THREE.Vector3(0, levelData.cameraHeight ?? 2.4, 5);
+    const cameraRay = new THREE.Ray();
+    const cameraHit = new THREE.Vector3();
     const cameraTarget = new THREE.Vector3();
     const forwardDir = new THREE.Vector3();
     const rightDir = new THREE.Vector3();
@@ -280,6 +306,8 @@ export default function GameScene() {
         .set(-Math.sin(playerState.yaw), 0, -Math.cos(playerState.yaw))
         .normalize();
       const playerPos = player.position.clone().add(CENTER_OFFSET);
+      let choppedTree = false;
+      let hitEnemy = false;
 
       levelData.trees.forEach((entry) => {
         if (!entry.alive || entry.floating) return;
@@ -292,6 +320,7 @@ export default function GameScene() {
         entry.mesh.parent?.traverse((child) => {
           child.visible = false;
         });
+        choppedTree = true;
         setScore((prev) => prev + 200);
       });
 
@@ -308,8 +337,12 @@ export default function GameScene() {
         if (enemy.type === 'pufferfish') points = 250;
         if (enemy.type === 'alien') points = 300;
         if (enemy.type === 'skull') points = 350;
+        hitEnemy = true;
         setScore((prev) => prev + points);
       });
+
+      if (choppedTree) play('chop');
+      if (hitEnemy) play('hit');
     };
 
     const SWING_TIME = 0.45;
@@ -328,14 +361,15 @@ export default function GameScene() {
     let trainLap = 0;
     let trainDwell = 0;
     let trainSinceDeparture = 0;
+    let leavingLevel = false;
 
     // Resolves the player's feet `p` (expressed in the box's frame) against a solid box.
     // Returns true when the player lands on / stands on top of it.
-    const collideBox = (p: THREE.Vector3, prevY: number, min: THREE.Vector3, max: THREE.Vector3) => {
+    const collideBox = (p: THREE.Vector3, prev: THREE.Vector3, min: THREE.Vector3, max: THREE.Vector3) => {
       if (p.x <= min.x - PLAYER_RADIUS || p.x >= max.x + PLAYER_RADIUS) return false;
       if (p.z <= min.z - PLAYER_RADIUS || p.z >= max.z + PLAYER_RADIUS) return false;
       if (p.y >= max.y || p.y + PLAYER_HEIGHT <= min.y) return false;
-      if (prevY >= max.y - 0.3 && playerState.velocity.y <= 0) {
+      if (prev.y >= max.y - 0.3 && playerState.velocity.y <= 0) {
         p.y = max.y;
         playerState.velocity.y = 0;
         playerState.onGround = true;
@@ -345,7 +379,11 @@ export default function GameScene() {
       const pushZ = [min.z - PLAYER_RADIUS - p.z, max.z + PLAYER_RADIUS - p.z];
       const bestX = Math.abs(pushX[0]) < Math.abs(pushX[1]) ? pushX[0] : pushX[1];
       const bestZ = Math.abs(pushZ[0]) < Math.abs(pushZ[1]) ? pushZ[0] : pushZ[1];
-      if (Math.abs(bestX) < Math.abs(bestZ)) {
+      // Push back out the side the player came from, so sliding along a wall doesn't snag on seams
+      const cameFromX = prev.x <= min.x - PLAYER_RADIUS || prev.x >= max.x + PLAYER_RADIUS;
+      const cameFromZ = prev.z <= min.z - PLAYER_RADIUS || prev.z >= max.z + PLAYER_RADIUS;
+      const pushAlongX = cameFromX !== cameFromZ ? cameFromX : Math.abs(bestX) < Math.abs(bestZ);
+      if (pushAlongX) {
         p.x += bestX;
       } else {
         p.z += bestZ;
@@ -360,6 +398,7 @@ export default function GameScene() {
       if (input.attack && playerState.attackTimer <= 0) {
         playerState.attackTimer = SWING_TIME;
         playerState.swingRegistered = false;
+        play('swing');
       }
       if (playerState.attackTimer > 0) {
         playerState.attackTimer = Math.max(0, playerState.attackTimer - delta);
@@ -369,8 +408,10 @@ export default function GameScene() {
         }
       }
 
+      const wasInWater = playerState.inWater;
       playerState.inWater =
         currentLevel === 2 && player.position.y + CHEST_HEIGHT <= levelData.waterLevel;
+      if (playerState.inWater && !wasInWater) play('splash', 0.5);
 
       // Check if player is on top of a tree or climbing
       playerState.onTree = false;
@@ -398,6 +439,7 @@ export default function GameScene() {
           levelData.bikeRef.position.set(0, 0, 0);
           levelData.bikeRef.rotation.set(0, -Math.PI / 2, 0);
           model.add(levelData.bikeRef);
+          play('bike');
         }
       }
 
@@ -423,12 +465,15 @@ export default function GameScene() {
       }
 
       // Jumping / swimming / climbing (onGround reflects last frame's collisions)
+      const wasOnGround = playerState.onGround;
       if (input.jump) {
         if (playerState.onGround || playerState.onTree) {
           playerState.velocity.y = 8.5;
           playerState.onGround = false;
+          play('jump', 0.15);
         } else if (playerState.inWater || playerState.climbingTree) {
           playerState.velocity.y = 5;
+          if (playerState.inWater) play('swim', 0.45);
         }
       }
 
@@ -502,6 +547,7 @@ export default function GameScene() {
         if (trainDwell > 0) {
           trainDwell -= delta;
           trainSinceDeparture = 0;
+          if (trainDwell <= 0) play('whistle');
         } else {
           trainSinceDeparture += delta;
           const nextStop = trainStops.length
@@ -540,8 +586,9 @@ export default function GameScene() {
         }
       }
 
-      const prevY = player.position.y;
+      const prevPos = player.position.clone();
       player.position.addScaledVector(playerState.velocity, delta);
+      const impactSpeed = -playerState.velocity.y;
 
       if (player.position.y <= levelData.groundLevel) {
         player.position.y = levelData.groundLevel;
@@ -550,14 +597,19 @@ export default function GameScene() {
       }
 
       for (const box of levelData.colliders ?? []) {
-        collideBox(player.position, prevY, box.min, box.max);
+        collideBox(player.position, prevPos, box.min, box.max);
       }
 
       playerState.onTrain = false;
       if (train) {
         const local = train.worldToLocal(player.position.clone());
-        playerState.onTrain = collideBox(local, prevY, TRAIN_BOX.min, TRAIN_BOX.max);
+        const prevLocal = train.worldToLocal(prevPos.clone());
+        playerState.onTrain = collideBox(local, prevLocal, TRAIN_BOX.min, TRAIN_BOX.max);
         player.position.copy(train.localToWorld(local));
+      }
+
+      if (!wasOnGround && playerState.onGround && impactSpeed > 6 && !playerState.inWater) {
+        play('land', 0.2);
       }
 
       // Water surface resistance
@@ -569,25 +621,6 @@ export default function GameScene() {
         const distToWater = player.position.y + CHEST_HEIGHT - levelData.waterLevel;
         if (distToWater < 0.5) {
           playerState.velocity.y *= 0.8;
-        }
-      }
-
-      // Maze wall collision
-      if (levelData.mazeData && levelData.mazeOffsetX !== undefined) {
-        const mazeLocalX = player.position.x - levelData.mazeOffsetX + (levelData.mazeSize! * levelData.mazeScale!) / 2;
-        const mazeLocalZ = player.position.z - levelData.mazeOffsetZ! + (levelData.mazeSize! * levelData.mazeScale!) / 2;
-        const gridX = Math.floor(mazeLocalX / levelData.mazeScale!);
-        const gridZ = Math.floor(mazeLocalZ / levelData.mazeScale!);
-
-        if (gridX >= 0 && gridX < levelData.mazeSize! &&
-            gridZ >= 0 && gridZ < levelData.mazeSize! &&
-            player.position.y < 3) {
-          if (levelData.mazeData[gridX][gridZ]) {
-            playerState.velocity.x *= -0.5;
-            playerState.velocity.z *= -0.5;
-            player.position.x -= playerState.velocity.x * delta * 2;
-            player.position.z -= playerState.velocity.z * delta * 2;
-          }
         }
       }
 
@@ -604,7 +637,9 @@ export default function GameScene() {
       if (levelData.exitPortal) {
         const portalPos = levelData.exitPortal.position;
         const distToPortal = player.position.clone().add(CENTER_OFFSET).distanceTo(portalPos);
-        if (distToPortal < 2) {
+        if (distToPortal < 2 && !leavingLevel) {
+          leavingLevel = true;
+          play('portal');
           if (currentLevel === 6) {
             setScore((prev) => prev + 1000);
             setCurrentLevel(1);
@@ -653,8 +688,23 @@ export default function GameScene() {
       const rotatedOffset = cameraOffset.clone();
       rotatedOffset.applyAxisAngle(new THREE.Vector3(0, 1, 0), playerState.yaw);
       const desiredCameraPos = player.position.clone().add(rotatedOffset);
-      camera.position.lerp(desiredCameraPos, 0.12);
       cameraTarget.copy(player.position).add(CAMERA_LOOK_OFFSET);
+
+      // Pull the camera in front of any wall between it and the player
+      const toCamera = desiredCameraPos.clone().sub(cameraTarget);
+      const cameraDistance = toCamera.length();
+      cameraRay.set(cameraTarget, toCamera.divideScalar(cameraDistance));
+      let clearDistance = cameraDistance;
+      for (const box of levelData.colliders ?? []) {
+        if (cameraRay.intersectBox(box, cameraHit)) {
+          clearDistance = Math.min(clearDistance, cameraHit.distanceTo(cameraTarget) - 0.3);
+        }
+      }
+      if (clearDistance < cameraDistance) {
+        camera.position.copy(cameraTarget).addScaledVector(cameraRay.direction, Math.max(clearDistance, 0.4));
+      } else {
+        camera.position.lerp(desiredCameraPos, 0.12);
+      }
       camera.lookAt(cameraTarget);
 
       renderer.render(scene, camera);
@@ -679,6 +729,7 @@ export default function GameScene() {
       document.removeEventListener('gesturestart', preventDefault);
       container.removeEventListener('contextmenu', preventDefault);
       window.removeEventListener('blur', releaseAllInput);
+      unlockEvents.forEach((type) => window.removeEventListener(type, unlockAudio));
       scene.traverse((object) => {
         if (object instanceof THREE.Mesh) {
           object.geometry.dispose();
@@ -712,6 +763,21 @@ export default function GameScene() {
           <button onClick={() => warpToLevel(6)} className={currentLevel === 6 ? 'active' : ''}>6</button>
         </div>
         <div className="score-display">Score: {score}</div>
+        <button
+          className="sound-toggle"
+          onClick={toggleMute}
+          aria-label={muted ? 'Turn sound on' : 'Turn sound off'}
+          title={muted ? 'Turn sound on' : 'Turn sound off'}
+        >
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M11 5 6 9H3v6h3l5 4V5z" fill="currentColor" />
+            {muted ? (
+              <path d="m16 9 5 6m0-6-5 6" />
+            ) : (
+              <path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13" />
+            )}
+          </svg>
+        </button>
         <div className="hud-row">
           <div className="hud-card desktop-only">
             <h3>Desktop Controls</h3>

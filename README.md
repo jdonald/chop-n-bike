@@ -41,7 +41,7 @@ Jump aboard a train circling a track on red dirt:
 - Climb the station steps and hop onto the train's roof when it pulls in and stops
 - Ride it around the track (the train is solid, so stay off the rails!)
 - Jump off at the far station next to the maze
-- Navigate through a golden maze to the portal at its center
+- Navigate through a golden maze (no walking through walls!) to the portal at its center
 
 ### Level 4: Space Planets
 Float through space and leap between spherical worlds:
@@ -76,6 +76,10 @@ Claude Opus 5.5.
 ## Controls
 
 This is a web game and can load in a browser. On deskop the controls would be WASD or the arrow keys for movement, the spacebar to jump (or swim up), K to swing the sword, Shift to sink faster in water, and mouse controls to change the direction the player is facing. On mobile devices, use touch-screen controls similar to Minecraft Bedrock Edition: left side has a displayed touch-pad, right-side has buttons to tap for jump (J), sword-strike (C), and sink (S, in the ocean). Touching in other areas of the screen can rotate the camera.
+
+The game has synthesized sound effects (jumps, sword swings, chopping, splashes, the bike bell, the
+train whistle, and a chime at each portal). The speaker button under the score turns sound on or off.
+On iPhone, sound also follows the ring/silent switch.
 
 ## Frameworks
 
