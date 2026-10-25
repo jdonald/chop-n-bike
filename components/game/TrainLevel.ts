@@ -69,14 +69,29 @@ export function setupTrainLevel(scene: THREE.Scene): LevelData {
   const exitPortal = createExitPortal(mazeCenterX, 1.5, mazeCenterZ);
   scene.add(exitPortal);
 
-  // Jump-off platform near the train stop
-  const platformGeo = new THREE.BoxGeometry(4, 0.5, 4);
-  const platformMat = new THREE.MeshStandardMaterial({ color: 0x666666, roughness: 0.8 });
-  const jumpOffPlatform = new THREE.Mesh(platformGeo, platformMat);
-  jumpOffPlatform.position.set(-trackRadius, 0.25, 0);
-  jumpOffPlatform.receiveShadow = true;
-  jumpOffPlatform.castShadow = true;
-  scene.add(jumpOffPlatform);
+  // Stations: the train stops beside each one. Steps make the platform reachable with a normal
+  // jump, and the platform is high enough to jump from onto the train roof.
+  const colliders: THREE.Box3[] = [];
+  const addBlock = (min: [number, number, number], max: [number, number, number], color: number) => {
+    const box = new THREE.Box3(new THREE.Vector3(...min), new THREE.Vector3(...max));
+    const size = box.getSize(new THREE.Vector3());
+    const block = new THREE.Mesh(
+      new THREE.BoxGeometry(size.x, size.y, size.z),
+      new THREE.MeshStandardMaterial({ color, roughness: 0.8 })
+    );
+    box.getCenter(block.position);
+    block.castShadow = true;
+    block.receiveShadow = true;
+    scene.add(block);
+    colliders.push(box);
+  };
+
+  // Near the player's start, inside the track at angle PI/2
+  addBlock([-2, 0, 20.6], [2, 1.3, 23.4], 0x777777);
+  addBlock([-2, 0, 18.8], [2, 0.65, 20.6], 0x666666);
+  // Near the maze, outside the track at angle PI
+  addBlock([-29.2, 0, -2], [-26.6, 1.3, 2], 0x777777);
+  addBlock([-30.6, 0, -2], [-29.2, 0.65, 2], 0x666666);
 
   return {
     trees: [],
@@ -87,7 +102,8 @@ export function setupTrainLevel(scene: THREE.Scene): LevelData {
     boundaryRadius: 75,
     trainRef: train,
     trackRadius,
-    trainAngle: 0,
+    trainStops: [Math.PI / 2, Math.PI],
+    colliders,
     mazeData: maze,
     mazeOffsetX,
     mazeOffsetZ,

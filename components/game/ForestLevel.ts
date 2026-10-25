@@ -68,7 +68,7 @@ export function setupForestLevel(scene: THREE.Scene): LevelData {
 
   // Bike reward - placed near the path
   const bike = buildBike();
-  bike.position.set(10, 0.3, 10);
+  bike.position.set(10, 0, 10);
   bike.rotation.y = Math.PI / 4;
   scene.add(bike);
 

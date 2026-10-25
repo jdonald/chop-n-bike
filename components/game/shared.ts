@@ -40,7 +40,7 @@ export type LevelData = {
   boundaryRadius: number;
   trainRef?: THREE.Group;
   trackRadius?: number;
-  trainAngle?: number;
+  trainStops?: number[];
   mazeData?: boolean[][];
   mazeOffsetX?: number;
   mazeOffsetZ?: number;
@@ -48,6 +48,7 @@ export type LevelData = {
   mazeScale?: number;
   planets?: PlanetMeta[];
   bikeRef?: THREE.Group;
+  colliders?: THREE.Box3[];
 };
 
 export function buildTree(): THREE.Group {
@@ -301,77 +302,72 @@ export function createExitPortal(x: number, y: number, z: number): THREE.Group {
   return portal;
 }
 
-export function createPlayer(): { player: THREE.Group; body: THREE.Mesh; head: THREE.Mesh; sword: THREE.Mesh } {
+export type PlayerRig = {
+  player: THREE.Group;
+  model: THREE.Group;
+  swordArm: THREE.Group;
+  swordGrip: THREE.Group;
+};
+
+// Feet sit at the player's origin; local +Z is the facing direction, so -X is the right hand.
+export function createPlayer(): PlayerRig {
   const player = new THREE.Group();
+  const model = new THREE.Group();
+  player.add(model);
 
-  // Stickman body - thin cylinder
-  const body = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.12, 0.12, 0.9, 8),
-    new THREE.MeshStandardMaterial({ color: 0xd7e2f3, roughness: 0.6, metalness: 0.15 })
-  );
-  body.position.y = 0.45;
-  body.castShadow = true;
-  body.receiveShadow = true;
-  player.add(body);
+  const skin = new THREE.MeshStandardMaterial({ color: 0xd7e2f3, roughness: 0.6, metalness: 0.15 });
+  const limb = (radius: number, length: number) => {
+    const mesh = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, length, 8), skin);
+    mesh.castShadow = true;
+    return mesh;
+  };
 
-  // Head
+  for (const side of [-1, 1]) {
+    const leg = limb(0.07, 0.8);
+    leg.position.set(side * 0.11, 0.4, 0);
+    model.add(leg);
+  }
+
+  const torso = limb(0.1, 0.75);
+  torso.position.y = 1.175;
+  model.add(torso);
+
   const head = new THREE.Mesh(
     new THREE.SphereGeometry(0.25, 16, 16),
     new THREE.MeshStandardMaterial({ color: 0xf0f4ff, roughness: 0.3 })
   );
-  head.position.y = 1.15;
+  head.position.y = 1.83;
   head.castShadow = true;
-  player.add(head);
+  model.add(head);
 
-  // Arms
-  const armMaterial = new THREE.MeshStandardMaterial({ color: 0xd7e2f3, roughness: 0.6, metalness: 0.15 });
-  const leftArm = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.06, 0.06, 0.7, 6),
-    armMaterial
-  );
-  leftArm.position.set(-0.25, 0.6, 0);
-  leftArm.rotation.z = -0.3;
-  leftArm.castShadow = true;
-  player.add(leftArm);
+  const leftArm = limb(0.055, 0.65);
+  leftArm.geometry.translate(0, -0.325, 0);
+  leftArm.position.set(0.17, 1.5, 0);
+  leftArm.rotation.z = 0.25;
+  model.add(leftArm);
 
-  const rightArm = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.06, 0.06, 0.7, 6),
-    armMaterial
-  );
-  rightArm.position.set(0.25, 0.6, 0);
-  rightArm.rotation.z = 0.3;
-  rightArm.castShadow = true;
-  player.add(rightArm);
+  const swordArm = new THREE.Group();
+  swordArm.position.set(-0.17, 1.5, 0);
+  swordArm.rotation.order = 'YXZ';
+  model.add(swordArm);
 
-  // Legs
-  const legMaterial = new THREE.MeshStandardMaterial({ color: 0xd7e2f3, roughness: 0.6, metalness: 0.15 });
-  const leftLeg = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.08, 0.08, 0.8, 6),
-    legMaterial
-  );
-  leftLeg.position.set(-0.12, -0.4, 0);
-  leftLeg.castShadow = true;
-  player.add(leftLeg);
+  const rightArm = limb(0.055, 0.65);
+  rightArm.position.y = -0.325;
+  swordArm.add(rightArm);
 
-  const rightLeg = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.08, 0.08, 0.8, 6),
-    legMaterial
-  );
-  rightLeg.position.set(0.12, -0.4, 0);
-  rightLeg.castShadow = true;
-  player.add(rightLeg);
+  const swordGrip = new THREE.Group();
+  swordGrip.position.y = -0.65;
+  swordArm.add(swordGrip);
 
-  // Sword - positioned at side, will swing forward
   const sword = new THREE.Mesh(
-    new THREE.BoxGeometry(0.09, 0.12, 1.1),
+    new THREE.BoxGeometry(0.08, 1.1, 0.08),
     new THREE.MeshStandardMaterial({ color: 0xd6ad60, roughness: 0.4, metalness: 0.3 })
   );
-  sword.position.set(0.45, 0.3, 0.1);
-  sword.rotation.y = Math.PI / 4;
+  sword.position.y = -0.5;
   sword.castShadow = true;
-  player.add(sword);
+  swordGrip.add(sword);
 
-  return { player, body, head, sword };
+  return { player, model, swordArm, swordGrip };
 }
 
 export function buildPlanet(radius: number, color: number): THREE.Mesh {
@@ -501,59 +497,50 @@ export function buildCrater(radius: number): THREE.Mesh {
   return crater;
 }
 
+function tube(from: THREE.Vector3, to: THREE.Vector3, radius: number, material: THREE.Material): THREE.Mesh {
+  const direction = new THREE.Vector3().subVectors(to, from);
+  const mesh = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, direction.length(), 8), material);
+  mesh.position.copy(from).addScaledVector(direction, 0.5);
+  mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction.normalize());
+  mesh.castShadow = true;
+  return mesh;
+}
+
+// Built along +X (front wheel at +X) with the tyres touching y = 0.
 export function buildBike(): THREE.Group {
   const bike = new THREE.Group();
+  const frameMat = new THREE.MeshStandardMaterial({ color: 0xff2222, roughness: 0.5, metalness: 0.6 });
+  const v = (x: number, y: number) => new THREE.Vector3(x, y, 0);
 
-  // Frame
-  const frameMat = new THREE.MeshStandardMaterial({ color: 0xff0000, roughness: 0.5, metalness: 0.6 });
-  const frame1 = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 1.2, 8), frameMat);
-  frame1.rotation.z = Math.PI / 4;
-  frame1.position.set(0, 0.4, 0);
-  bike.add(frame1);
-
-  const frame2 = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.8, 8), frameMat);
-  frame2.rotation.z = -Math.PI / 3;
-  frame2.position.set(-0.2, 0.3, 0);
-  bike.add(frame2);
-
-  // Wheels
   const wheelMat = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.8 });
-  const frontWheel = new THREE.Mesh(
-    new THREE.TorusGeometry(0.3, 0.06, 8, 16),
-    wheelMat
-  );
-  frontWheel.rotation.y = Math.PI / 2;
-  frontWheel.position.set(0.5, 0.3, 0);
-  frontWheel.castShadow = true;
-  bike.add(frontWheel);
+  for (const x of [-0.55, 0.55]) {
+    const wheel = new THREE.Mesh(new THREE.TorusGeometry(0.3, 0.045, 8, 24), wheelMat);
+    wheel.position.set(x, 0.345, 0);
+    wheel.castShadow = true;
+    bike.add(wheel);
+  }
 
-  const backWheel = new THREE.Mesh(
-    new THREE.TorusGeometry(0.3, 0.06, 8, 16),
-    wheelMat
-  );
-  backWheel.rotation.y = Math.PI / 2;
-  backWheel.position.set(-0.5, 0.3, 0);
-  backWheel.castShadow = true;
-  bike.add(backWheel);
+  const crank = v(0, 0.35);
+  const seatTop = v(-0.15, 0.78);
+  const head = v(0.4, 0.78);
+  bike.add(tube(crank, seatTop, 0.035, frameMat));
+  bike.add(tube(crank, head, 0.035, frameMat));
+  bike.add(tube(seatTop, head, 0.035, frameMat));
+  bike.add(tube(crank, v(-0.55, 0.345), 0.03, frameMat));
+  bike.add(tube(seatTop, v(-0.55, 0.345), 0.03, frameMat));
+  bike.add(tube(head, v(0.55, 0.345), 0.03, frameMat));
 
-  // Seat
-  const seatMat = new THREE.MeshStandardMaterial({ color: 0x8b4513 });
   const seat = new THREE.Mesh(
-    new THREE.BoxGeometry(0.3, 0.1, 0.2),
-    seatMat
+    new THREE.BoxGeometry(0.28, 0.06, 0.14),
+    new THREE.MeshStandardMaterial({ color: 0x5a3a1e })
   );
-  seat.position.set(-0.1, 0.7, 0);
+  seat.position.set(-0.17, 0.82, 0);
   bike.add(seat);
 
-  // Handlebars
-  const handleMat = new THREE.MeshStandardMaterial({ color: 0x333333, metalness: 0.7 });
-  const handleBar = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.03, 0.03, 0.5, 6),
-    handleMat
-  );
-  handleBar.rotation.z = Math.PI / 2;
-  handleBar.position.set(0.4, 0.7, 0);
+  const handleBar = tube(new THREE.Vector3(0.42, 0.88, -0.25), new THREE.Vector3(0.42, 0.88, 0.25), 0.025,
+    new THREE.MeshStandardMaterial({ color: 0x333333, metalness: 0.7 }));
   bike.add(handleBar);
+  bike.add(tube(head, v(0.42, 0.88), 0.03, frameMat));
 
   return bike;
 }

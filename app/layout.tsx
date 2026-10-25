@@ -13,7 +13,7 @@ export const metadata: Metadata = {
   },
   icons: {
     icon: '/icon-192.png',
-    apple: '/icon-192.png'
+    apple: '/apple-touch-icon.png'
   }
 };
 
@@ -32,7 +32,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <meta name="apple-mobile-web-app-title" content="Chop-n-Bike" />
-        <link rel="apple-touch-icon" href="/icon-192.png" />
+        <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
       </head>
       <body>
         {children}

@@ -4,6 +4,9 @@ Web-based 3D platformer adventure game with 6 unique levels, compatible with des
 
 <img src="screenshot.jpg" alt="sample screenshot" width="200"/>
 
+**Play it:** https://chop-n-bike.vercel.app/ — on iPhone/iPad use Safari's Share → "Add to Home
+Screen", and on Android use Chrome's "Install app", to get a full-screen app icon.
+
 ## Description
 
 This is a multi-level 3D platformer game where you progress through diverse environments, each with unique mechanics and challenges. The game features a stickman character with arms and legs who can run, jump, climb, swim, and wield a sword.
@@ -16,7 +19,7 @@ The camera uses an over-the-shoulder view, allowing you to see your character's 
 The adventure begins in a mysterious dark forest bounded by a ring of mountains. This procedural terrain features:
 - Dense forest with 85 trees you can chop down with your sword
 - Circular paths to guide your exploration
-- Hidden bike reward that increases your movement speed
+- A red bike hidden in the forest: ride over it to hop on and move almost twice as fast
 - Glowing cyan portal exit once you find your way through
 
 **Design Note**: The original concept focused on exploration and resource gathering, with the satisfying mechanic of clearing your own path through the trees.
@@ -27,19 +30,18 @@ The adventure begins in a mysterious dark forest bounded by a ring of mountains.
 Emerging from the dark forest, you find yourself in a bright, expansive ocean:
 - Naturally sink slowly in water, with faster sinking on Shift key (desktop) or Sink button (mobile)
 - 25 floating trees you can climb but cannot chop
-- Jellyfish enemies swimming in the depths
+- Jellyfish and pufferfish swimming in the depths
 - Jump button enables swimming upward
 - Stand on tree tops and jump between them
 - Movement is naturally slower in water than in air
 - Exit portal hidden deep underwater
 
 ### Level 3: Train & Maze
-Jump aboard a moving train circling an ancient track:
-- Ride the continuously moving train around the circular track
-- Time your jump from the train to the platform
-- Navigate through a golden maze
-- Find the portal at the maze's center
-- Strategic challenge: when to jump off the train?
+Jump aboard a train circling a track on red dirt:
+- Climb the station steps and hop onto the train's roof when it pulls in and stops
+- Ride it around the track (the train is solid, so stay off the rails!)
+- Jump off at the far station next to the maze
+- Navigate through a golden maze to the portal at its center
 
 ### Level 4: Space Planets
 Float through space and leap between spherical worlds:
@@ -53,7 +55,6 @@ Float through space and leap between spherical worlds:
 Explore a cratered lunar landscape:
 - Navigate moon craters and rough terrain
 - Battle green aliens with your sword
-- Low-gravity environment
 - Exit portal hidden somewhere on the moon
 
 ### Level 6: Pink Island
@@ -65,9 +66,16 @@ The final challenge on a vibrant pink island:
 
 Each level was thoughtfully designed to introduce new mechanics and build on skills learned in previous stages, creating a progressive adventure from dark forest to alien worlds.
 
+## How it was made
+
+This game was designed by a parent and daughter, who came up with the levels and the ideas for each
+one and then built them with [Claude Code](https://claude.com/claude-code). The bulk of the levels,
+through October 2026, were written with Claude Sonnet 4.5. Development is now continuing with
+Claude Opus 5.5.
+
 ## Controls
 
-This is a web game and can load in a browser. On deskop the controls would be WASD or the arrow keys for movement, the spacebar to jump, k, to swing the sword, and mouse controls to change the direction the player is facing. On mobile devices, use touch-screen controls similar to Minecraft Bedrock Edition: left side has a displayed touch-pad, right-side has two buttons to tap for jump or sword-strike. Touching in other areas of the screen can rotate the camera.
+This is a web game and can load in a browser. On deskop the controls would be WASD or the arrow keys for movement, the spacebar to jump (or swim up), K to swing the sword, Shift to sink faster in water, and mouse controls to change the direction the player is facing. On mobile devices, use touch-screen controls similar to Minecraft Bedrock Edition: left side has a displayed touch-pad, right-side has buttons to tap for jump (J), sword-strike (C), and sink (S, in the ocean). Touching in other areas of the screen can rotate the camera.
 
 ## Frameworks
 

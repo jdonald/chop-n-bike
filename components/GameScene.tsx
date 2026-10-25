@@ -10,6 +10,23 @@ import { setupSpaceLevel } from './game/SpaceLevel';
 import { setupMoonLevel } from './game/MoonLevel';
 import { setupPinkIslandLevel } from './game/PinkIslandLevel';
 
+type SwordPose = { shoulder: number; wrist: number; sweep: number };
+
+// shoulder: arm raised forward from hanging; wrist: blade angle from the arm toward the front;
+// sweep: turn across the body (negative = out to the right side)
+const SWORD_REST: SwordPose = { shoulder: 0.3, wrist: 1.7, sweep: -0.15 };
+const SWORD_WINDUP: SwordPose = { shoulder: 2.5, wrist: 1.5, sweep: -0.3 };
+const SWORD_FOLLOW_THROUGH: SwordPose = { shoulder: 0.9, wrist: 0.4, sweep: 0.35 };
+
+function lerpPose(a: SwordPose, b: SwordPose, t: number): SwordPose {
+  const k = t * t * (3 - 2 * t);
+  return {
+    shoulder: a.shoulder + (b.shoulder - a.shoulder) * k,
+    wrist: a.wrist + (b.wrist - a.wrist) * k,
+    sweep: a.sweep + (b.sweep - a.sweep) * k
+  };
+}
+
 export default function GameScene() {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -102,8 +119,10 @@ export default function GameScene() {
     }
 
     // Player
-    const { player, body, head, sword } = createPlayer();
+    const { player, model, swordArm, swordGrip } = createPlayer();
     player.position.set(0, 0, 6);
+    // Space-level physics snaps the player's origin 0.6 above planet surfaces
+    model.position.y = currentLevel === 4 ? -0.6 : 0;
     scene.add(player);
 
     const playerState = {
@@ -116,7 +135,8 @@ export default function GameScene() {
       inWater: false,
       onTree: false,
       climbingTree: null as THREE.Group | null,
-      hasBike: false
+      hasBike: false,
+      onTrain: false
     };
 
     // Input handling
@@ -210,6 +230,7 @@ export default function GameScene() {
           );
           lastTouchX = touch.clientX;
           lastTouchY = touch.clientY;
+          event.preventDefault();
           break;
         }
       }
@@ -230,11 +251,25 @@ export default function GameScene() {
     window.addEventListener('pointermove', onPointerMove);
     canvas.addEventListener('click', onClick);
     canvas.addEventListener('touchstart', onTouchStart);
-    canvas.addEventListener('touchmove', onTouchMove);
+    canvas.addEventListener('touchmove', onTouchMove, { passive: false });
     canvas.addEventListener('touchend', onTouchEnd);
+    canvas.addEventListener('touchcancel', onTouchEnd);
+
+    // Keep mobile browsers from treating the game like a document (pinch zoom, long-press menus)
+    const preventDefault = (event: Event) => event.preventDefault();
+    document.addEventListener('gesturestart', preventDefault);
+    container.addEventListener('contextmenu', preventDefault);
+
+    const releaseAllInput = () => {
+      const input = inputRef.current;
+      (Object.keys(input) as (keyof InputState)[]).forEach((key) => {
+        input[key] = false;
+      });
+    };
+    window.addEventListener('blur', releaseAllInput);
 
     // Scene helpers
-    const cameraOffset = new THREE.Vector3(0, 1.7, 4.8);
+    const cameraOffset = new THREE.Vector3(0, 2.4, 5);
     const cameraTarget = new THREE.Vector3();
     const forwardDir = new THREE.Vector3();
     const rightDir = new THREE.Vector3();
@@ -244,7 +279,7 @@ export default function GameScene() {
       const forward = forwardDir
         .set(-Math.sin(playerState.yaw), 0, -Math.cos(playerState.yaw))
         .normalize();
-      const playerPos = player.position.clone();
+      const playerPos = player.position.clone().add(CENTER_OFFSET);
 
       levelData.trees.forEach((entry) => {
         if (!entry.alive || entry.floating) return;
@@ -277,28 +312,65 @@ export default function GameScene() {
       });
     };
 
+    const SWING_TIME = 0.45;
+    const SWING_HIT_AT = 0.45;
+    const PLAYER_RADIUS = 0.3;
+    const PLAYER_HEIGHT = 2.1;
+    const CHEST_HEIGHT = 1.2;
+    const CENTER_OFFSET = new THREE.Vector3(0, 1, 0);
+    const CAMERA_LOOK_OFFSET = new THREE.Vector3(0, 1.6, 0);
+    const TRAIN_BOX = new THREE.Box3(new THREE.Vector3(-1.7, 0, -1.2), new THREE.Vector3(1.7, 2.4, 1.2));
+    const TRAIN_SPEED = 0.25;
+    const TRAIN_DWELL = 4;
+    const trainStops = levelData.trainStops ?? [];
+    let trainAngle = 0;
+    let trainStopIndex = 0;
+    let trainLap = 0;
+    let trainDwell = 0;
+    let trainSinceDeparture = 0;
+
+    // Resolves the player's feet `p` (expressed in the box's frame) against a solid box.
+    // Returns true when the player lands on / stands on top of it.
+    const collideBox = (p: THREE.Vector3, prevY: number, min: THREE.Vector3, max: THREE.Vector3) => {
+      if (p.x <= min.x - PLAYER_RADIUS || p.x >= max.x + PLAYER_RADIUS) return false;
+      if (p.z <= min.z - PLAYER_RADIUS || p.z >= max.z + PLAYER_RADIUS) return false;
+      if (p.y >= max.y || p.y + PLAYER_HEIGHT <= min.y) return false;
+      if (prevY >= max.y - 0.3 && playerState.velocity.y <= 0) {
+        p.y = max.y;
+        playerState.velocity.y = 0;
+        playerState.onGround = true;
+        return true;
+      }
+      const pushX = [min.x - PLAYER_RADIUS - p.x, max.x + PLAYER_RADIUS - p.x];
+      const pushZ = [min.z - PLAYER_RADIUS - p.z, max.z + PLAYER_RADIUS - p.z];
+      const bestX = Math.abs(pushX[0]) < Math.abs(pushX[1]) ? pushX[0] : pushX[1];
+      const bestZ = Math.abs(pushZ[0]) < Math.abs(pushZ[1]) ? pushZ[0] : pushZ[1];
+      if (Math.abs(bestX) < Math.abs(bestZ)) {
+        p.x += bestX;
+      } else {
+        p.z += bestZ;
+      }
+      return false;
+    };
+
     const animate = () => {
-      const delta = clock.getDelta();
+      const delta = Math.min(clock.getDelta(), 0.05);
       const input = inputRef.current;
 
       if (input.attack && playerState.attackTimer <= 0) {
-        playerState.attackTimer = 0.35;
+        playerState.attackTimer = SWING_TIME;
         playerState.swingRegistered = false;
       }
       if (playerState.attackTimer > 0) {
-        playerState.attackTimer -= delta;
-        if (!playerState.swingRegistered && playerState.attackTimer < 0.2) {
+        playerState.attackTimer = Math.max(0, playerState.attackTimer - delta);
+        if (!playerState.swingRegistered && playerState.attackTimer <= SWING_TIME * (1 - SWING_HIT_AT)) {
           applyChop();
           playerState.swingRegistered = true;
         }
       }
 
-      // Check water state (ocean level only)
-      if (currentLevel === 2) {
-        playerState.inWater = player.position.y <= levelData.waterLevel;
-      } else {
-        playerState.inWater = false;
-      }
+      playerState.inWater =
+        currentLevel === 2 && player.position.y + CHEST_HEIGHT <= levelData.waterLevel;
 
       // Check if player is on top of a tree or climbing
       playerState.onTree = false;
@@ -320,12 +392,12 @@ export default function GameScene() {
         }
       });
 
-      // Bike pickup collision detection
       if (levelData.bikeRef && !playerState.hasBike) {
-        const distToBike = player.position.distanceTo(levelData.bikeRef.position);
-        if (distToBike < 1.5) {
+        if (player.position.distanceTo(levelData.bikeRef.position) < 1.5) {
           playerState.hasBike = true;
-          levelData.bikeRef.visible = false; // Hide bike when picked up
+          levelData.bikeRef.position.set(0, 0, 0);
+          levelData.bikeRef.rotation.set(0, -Math.PI / 2, 0);
+          model.add(levelData.bikeRef);
         }
       }
 
@@ -343,24 +415,14 @@ export default function GameScene() {
 
       if (moveVector.lengthSq() > 0) {
         moveVector.normalize().multiplyScalar(moveSpeed);
-        playerState.velocity.x = THREE.MathUtils.damp(
-          playerState.velocity.x,
-          moveVector.x,
-          8,
-          delta
-        );
-        playerState.velocity.z = THREE.MathUtils.damp(
-          playerState.velocity.z,
-          moveVector.z,
-          8,
-          delta
-        );
+        playerState.velocity.x = THREE.MathUtils.damp(playerState.velocity.x, moveVector.x, 8, delta);
+        playerState.velocity.z = THREE.MathUtils.damp(playerState.velocity.z, moveVector.z, 8, delta);
       } else {
         playerState.velocity.x = THREE.MathUtils.damp(playerState.velocity.x, 0, 6, delta);
         playerState.velocity.z = THREE.MathUtils.damp(playerState.velocity.z, 0, 6, delta);
       }
 
-      // Jumping / swimming / climbing
+      // Jumping / swimming / climbing (onGround reflects last frame's collisions)
       if (input.jump) {
         if (playerState.onGround || playerState.onTree) {
           playerState.velocity.y = 8.5;
@@ -370,19 +432,24 @@ export default function GameScene() {
         }
       }
 
-      // Sinking in water
       if (playerState.inWater) {
-        playerState.velocity.y -= 3 * delta;
-        if (input.sink) {
-          playerState.velocity.y -= 8 * delta;
+        // Water drag: settle toward a gentle sink speed (faster while holding sink)
+        const sinkSpeed = input.sink ? -6 : -1.5;
+        playerState.velocity.y = THREE.MathUtils.damp(playerState.velocity.y, sinkSpeed, 2.5, delta);
+      } else if (currentLevel === 4) {
+        if (!playerState.onGround) {
+          playerState.velocity.y -= 24 * delta;
         }
-      } else if (!playerState.onGround && !playerState.onTree) {
+      } else if (!playerState.onTree) {
+        // Always pull down; ground, platforms and the train re-establish support below
         playerState.velocity.y -= 24 * delta;
+      }
+      if (currentLevel !== 4) {
+        playerState.onGround = false;
       }
 
       // Space gravity (Level 4)
       if (currentLevel === 4 && levelData.planets) {
-        // Find nearest planet
         let nearestPlanet = null;
         let minDist = Infinity;
         for (const planet of levelData.planets) {
@@ -394,20 +461,16 @@ export default function GameScene() {
         }
 
         if (nearestPlanet) {
-          // Apply gravity toward nearest planet
           const toPlanet = new THREE.Vector3().subVectors(nearestPlanet.position, player.position);
           const distance = toPlanet.length();
 
-          // Only apply gravity if within range
           if (distance > nearestPlanet.radius + 0.5 && distance < nearestPlanet.radius + 30) {
             toPlanet.normalize();
             const gravityStrength = 18;
             playerState.velocity.addScaledVector(toPlanet, gravityStrength * delta);
           }
 
-          // Check collision with planet surface
           if (distance <= nearestPlanet.radius + 0.6) {
-            // Snap to surface
             const surfacePos = new THREE.Vector3()
               .subVectors(player.position, nearestPlanet.position)
               .normalize()
@@ -415,7 +478,6 @@ export default function GameScene() {
               .add(nearestPlanet.position);
             player.position.copy(surfacePos);
 
-            // Remove velocity component toward planet center
             const toPlanetNorm = new THREE.Vector3()
               .subVectors(player.position, nearestPlanet.position)
               .normalize();
@@ -427,28 +489,105 @@ export default function GameScene() {
             playerState.onGround = true;
           }
 
-          // Allow "jumping" away from planet or "sinking" toward it
           if (input.sink && distance <= nearestPlanet.radius + 5) {
-            // Push toward planet (like sinking)
             playerState.velocity.addScaledVector(toPlanet, 8 * delta);
           }
         }
       }
 
+      // Level 3: train runs between stations, pausing at each so the player can board
+      const train = levelData.trainRef;
+      if (train && levelData.trackRadius !== undefined) {
+        let dAngle = 0;
+        if (trainDwell > 0) {
+          trainDwell -= delta;
+          trainSinceDeparture = 0;
+        } else {
+          trainSinceDeparture += delta;
+          const nextStop = trainStops.length
+            ? trainStops[trainStopIndex] + trainLap * Math.PI * 2
+            : Infinity;
+          const remaining = nextStop - trainAngle;
+          const brake = THREE.MathUtils.clamp(remaining / 0.35, 0.15, 1);
+          const accelerate = THREE.MathUtils.clamp(trainSinceDeparture / 1.5, 0.15, 1);
+          dAngle = TRAIN_SPEED * Math.min(brake, accelerate) * delta;
+          if (dAngle >= remaining) {
+            dAngle = remaining;
+            trainDwell = TRAIN_DWELL;
+            trainStopIndex += 1;
+            if (trainStopIndex >= trainStops.length) {
+              trainStopIndex = 0;
+              trainLap += 1;
+            }
+          }
+        }
+        trainAngle += dAngle;
+        train.position.set(
+          Math.cos(trainAngle) * levelData.trackRadius,
+          0,
+          Math.sin(trainAngle) * levelData.trackRadius
+        );
+        train.rotation.y = -trainAngle + Math.PI / 2;
+        train.updateMatrixWorld();
+
+        if (playerState.onTrain && dAngle !== 0) {
+          const { x, z } = player.position;
+          const cos = Math.cos(dAngle);
+          const sin = Math.sin(dAngle);
+          player.position.x = x * cos - z * sin;
+          player.position.z = x * sin + z * cos;
+          playerState.yaw -= dAngle;
+        }
+      }
+
+      const prevY = player.position.y;
       player.position.addScaledVector(playerState.velocity, delta);
 
-      // Ground collision
       if (player.position.y <= levelData.groundLevel) {
         player.position.y = levelData.groundLevel;
         playerState.velocity.y = 0;
         playerState.onGround = true;
       }
 
+      for (const box of levelData.colliders ?? []) {
+        collideBox(player.position, prevY, box.min, box.max);
+      }
+
+      playerState.onTrain = false;
+      if (train) {
+        const local = train.worldToLocal(player.position.clone());
+        playerState.onTrain = collideBox(local, prevY, TRAIN_BOX.min, TRAIN_BOX.max);
+        player.position.copy(train.localToWorld(local));
+      }
+
       // Water surface resistance
-      if (currentLevel === 2 && player.position.y > levelData.waterLevel && playerState.velocity.y < 0) {
-        const distToWater = player.position.y - levelData.waterLevel;
+      if (
+        currentLevel === 2 &&
+        player.position.y + CHEST_HEIGHT > levelData.waterLevel &&
+        playerState.velocity.y < 0
+      ) {
+        const distToWater = player.position.y + CHEST_HEIGHT - levelData.waterLevel;
         if (distToWater < 0.5) {
           playerState.velocity.y *= 0.8;
+        }
+      }
+
+      // Maze wall collision
+      if (levelData.mazeData && levelData.mazeOffsetX !== undefined) {
+        const mazeLocalX = player.position.x - levelData.mazeOffsetX + (levelData.mazeSize! * levelData.mazeScale!) / 2;
+        const mazeLocalZ = player.position.z - levelData.mazeOffsetZ! + (levelData.mazeSize! * levelData.mazeScale!) / 2;
+        const gridX = Math.floor(mazeLocalX / levelData.mazeScale!);
+        const gridZ = Math.floor(mazeLocalZ / levelData.mazeScale!);
+
+        if (gridX >= 0 && gridX < levelData.mazeSize! &&
+            gridZ >= 0 && gridZ < levelData.mazeSize! &&
+            player.position.y < 3) {
+          if (levelData.mazeData[gridX][gridZ]) {
+            playerState.velocity.x *= -0.5;
+            playerState.velocity.z *= -0.5;
+            player.position.x -= playerState.velocity.x * delta * 2;
+            player.position.z -= playerState.velocity.z * delta * 2;
+          }
         }
       }
 
@@ -464,73 +603,13 @@ export default function GameScene() {
       // Portal collision detection
       if (levelData.exitPortal) {
         const portalPos = levelData.exitPortal.position;
-        const distToPortal = player.position.distanceTo(portalPos);
+        const distToPortal = player.position.clone().add(CENTER_OFFSET).distanceTo(portalPos);
         if (distToPortal < 2) {
-          if (currentLevel === 1) {
-            setCurrentLevel(2);
-          } else if (currentLevel === 2) {
-            setCurrentLevel(3);
-          } else if (currentLevel === 3) {
-            setCurrentLevel(4);
-          } else if (currentLevel === 4) {
-            setCurrentLevel(5);
-          } else if (currentLevel === 5) {
-            setCurrentLevel(6);
-          } else if (currentLevel === 6) {
+          if (currentLevel === 6) {
             setScore((prev) => prev + 1000);
             setCurrentLevel(1);
-          }
-        }
-      }
-
-      // Level 3: Train animation and riding
-      if (currentLevel === 3 && levelData.trainRef && levelData.trackRadius !== undefined) {
-        levelData.trainAngle = (levelData.trainAngle || 0) + delta * 0.3;
-        const trainX = Math.cos(levelData.trainAngle) * levelData.trackRadius;
-        const trainZ = Math.sin(levelData.trainAngle) * levelData.trackRadius;
-        levelData.trainRef.position.set(trainX, 0, trainZ);
-        levelData.trainRef.rotation.y = -levelData.trainAngle + Math.PI / 2;
-
-        const trainTop = 2.35; // Platform height on train
-        const dx = player.position.x - trainX;
-        const dz = player.position.z - trainZ;
-        const distToTrain = Math.sqrt(dx * dx + dz * dz);
-        // More lenient collision - wider horizontal range and catch players falling onto it
-        const onTrain = distToTrain < 2.2 &&
-                       player.position.y >= trainTop - 0.8 &&
-                       player.position.y <= trainTop + 2;
-
-        if (onTrain) {
-          playerState.onGround = true;
-          // Snap player to train platform
-          if (player.position.y < trainTop) {
-            player.position.y = trainTop;
-            playerState.velocity.y = 0;
-          }
-          // Move player with train
-          const prevAngle = levelData.trainAngle - delta * 0.3;
-          const prevX = Math.cos(prevAngle) * levelData.trackRadius;
-          const prevZ = Math.sin(prevAngle) * levelData.trackRadius;
-          player.position.x += trainX - prevX;
-          player.position.z += trainZ - prevZ;
-        }
-
-        // Maze wall collision
-        if (levelData.mazeData && levelData.mazeOffsetX !== undefined) {
-          const mazeLocalX = player.position.x - levelData.mazeOffsetX + (levelData.mazeSize! * levelData.mazeScale!) / 2;
-          const mazeLocalZ = player.position.z - levelData.mazeOffsetZ! + (levelData.mazeSize! * levelData.mazeScale!) / 2;
-          const gridX = Math.floor(mazeLocalX / levelData.mazeScale!);
-          const gridZ = Math.floor(mazeLocalZ / levelData.mazeScale!);
-
-          if (gridX >= 0 && gridX < levelData.mazeSize! &&
-              gridZ >= 0 && gridZ < levelData.mazeSize! &&
-              player.position.y < 3) {
-            if (levelData.mazeData[gridX][gridZ]) {
-              playerState.velocity.x *= -0.5;
-              playerState.velocity.z *= -0.5;
-              player.position.x -= playerState.velocity.x * delta * 2;
-              player.position.z -= playerState.velocity.z * delta * 2;
-            }
+          } else {
+            setCurrentLevel(currentLevel + 1);
           }
         }
       }
@@ -554,19 +633,19 @@ export default function GameScene() {
         }
       });
 
-      // Sword animation - swing forward (away from camera)
-      const swingPhase = THREE.MathUtils.clamp(
-        1 - playerState.attackTimer / 0.35,
-        0,
-        1
-      );
-      // Keep sword at side
-      sword.position.x = 0.45;
-      // Swing forward in Z direction
-      sword.position.z = 0.1 - swingPhase * 1.2;
-      // Rotate forward during swing
-      sword.rotation.x = -swingPhase * Math.PI * 0.6;
-      sword.rotation.y = Math.PI / 4;
+      // Sword: rest -> wind up overhead -> chop down in front -> back to rest
+      const t = playerState.attackTimer > 0 ? 1 - playerState.attackTimer / SWING_TIME : 0;
+      let pose: SwordPose;
+      if (t < 0.3) {
+        pose = lerpPose(SWORD_REST, SWORD_WINDUP, t / 0.3);
+      } else if (t < 0.6) {
+        pose = lerpPose(SWORD_WINDUP, SWORD_FOLLOW_THROUGH, (t - 0.3) / 0.3);
+      } else {
+        pose = lerpPose(SWORD_FOLLOW_THROUGH, SWORD_REST, (t - 0.6) / 0.4);
+      }
+      swordArm.rotation.x = -pose.shoulder;
+      swordArm.rotation.y = pose.sweep;
+      swordGrip.rotation.x = -pose.wrist;
 
       player.rotation.y = playerState.yaw + Math.PI;
 
@@ -575,7 +654,7 @@ export default function GameScene() {
       rotatedOffset.applyAxisAngle(new THREE.Vector3(0, 1, 0), playerState.yaw);
       const desiredCameraPos = player.position.clone().add(rotatedOffset);
       camera.position.lerp(desiredCameraPos, 0.12);
-      cameraTarget.copy(player.position).add(new THREE.Vector3(0, 1.2, 0));
+      cameraTarget.copy(player.position).add(CAMERA_LOOK_OFFSET);
       camera.lookAt(cameraTarget);
 
       renderer.render(scene, camera);
@@ -596,10 +675,18 @@ export default function GameScene() {
       canvas.removeEventListener('touchstart', onTouchStart);
       canvas.removeEventListener('touchmove', onTouchMove);
       canvas.removeEventListener('touchend', onTouchEnd);
+      canvas.removeEventListener('touchcancel', onTouchEnd);
+      document.removeEventListener('gesturestart', preventDefault);
+      container.removeEventListener('contextmenu', preventDefault);
+      window.removeEventListener('blur', releaseAllInput);
+      scene.traverse((object) => {
+        if (object instanceof THREE.Mesh) {
+          object.geometry.dispose();
+          const materials = Array.isArray(object.material) ? object.material : [object.material];
+          materials.forEach((material) => material.dispose());
+        }
+      });
       renderer.dispose();
-      body.geometry.dispose();
-      head.geometry.dispose();
-      sword.geometry.dispose();
     };
   }, [currentLevel]);
 
@@ -642,7 +729,7 @@ export default function GameScene() {
             {currentLevel === 1 && (
               <p>
                 Explore the dark forest, find the glowing portal, and chop through
-                trees blocking your path.
+                trees blocking your path. A red bike is hidden somewhere — ride it to go faster!
               </p>
             )}
             {currentLevel === 2 && (
@@ -653,8 +740,8 @@ export default function GameScene() {
             )}
             {currentLevel === 3 && (
               <p>
-                Jump on the train to ride around the track. Jump off at the platform,
-                navigate the yellow maze, and reach the portal at the center!
+                Climb the station steps ahead and hop onto the train roof when it stops. Ride to
+                the far station, jump off, and find your way through the yellow maze to the portal!
               </p>
             )}
             {currentLevel === 4 && (
